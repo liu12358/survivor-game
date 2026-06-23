@@ -1,0 +1,27 @@
+# Godot
+.godot/
+*.import
+export/
+export_presets.cfg
+
+# Build outputs
+*.exe
+*.pck
+
+# IDE / Editor
+.vscode/
+*.swp
+*.swo
+*~
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+
+# Local save data (dev only)
+save_dev.json

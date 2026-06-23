@@ -1,0 +1,25 @@
+[gd_scene load_steps=4 format=3 uid="uid://boss_scene"]
+
+[ext_resource type="Script" path="res://scripts/enemies/boss_shadow_lord.gd" id="1_boss"]
+[ext_resource type="Texture2D" path="res://assets/sprites/enemies/boss_shadow_lord.svg" id="2_texture"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_boss"]
+radius = 30.0
+
+[node name="BossShadowLord" type="CharacterBody2D" groups=["enemy", "boss"]]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_boss")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_texture")
+scale = Vector2(2.5, 2.5)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_boss")
+
+[node name="AttackTimer" type="Timer" parent="."]
+one_shot = true
+
+[node name="HurtTimer" type="Timer" parent="."]
+one_shot = true

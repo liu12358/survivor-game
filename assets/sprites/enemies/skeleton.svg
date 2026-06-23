@@ -1,0 +1,17 @@
+<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+<defs><radialGradient id="skG" cx="0.4" cy="0.35" r="0.8">
+<stop offset="0" stop-color="#f0e6cf"/><stop offset="1" stop-color="#c4b390"/>
+</radialGradient></defs>
+<ellipse cx="20" cy="38" rx="8" ry="2" fill="#000000" opacity="0.2"/>
+<ellipse cx="20" cy="30" rx="6" ry="10" fill="url(#skG)" stroke="#8a7a5a" stroke-width="1.4"/>
+<line x1="13" y1="27" x2="27" y2="27" stroke="#8a7a5a" stroke-width="1"/>
+<line x1="13" y1="31" x2="27" y2="31" stroke="#8a7a5a" stroke-width="1"/>
+<line x1="20" y1="24" x2="13" y2="27" stroke="#c4b390" stroke-width="2"/>
+<line x1="20" y1="24" x2="27" y2="27" stroke="#c4b390" stroke-width="2"/>
+<circle cx="20" cy="15" r="8.5" fill="url(#skG)" stroke="#8a7a5a" stroke-width="1.4"/>
+<ellipse cx="16" cy="15" rx="2.4" ry="2.8" fill="#1a1f29"/><ellipse cx="24" cy="15" rx="2.4" ry="2.8" fill="#1a1f29"/>
+<circle cx="16" cy="14.5" r="0.9" fill="#ff6b6b" opacity="0.85"/><circle cx="24" cy="14.5" r="0.9" fill="#ff6b6b" opacity="0.85"/>
+<line x1="18" y1="20" x2="22" y2="20" stroke="#8a7a5a" stroke-width="1"/>
+<line x1="18.5" y1="19" x2="18.5" y2="21" stroke="#8a7a5a" stroke-width="0.8"/>
+<line x1="21.5" y1="19" x2="21.5" y2="21" stroke="#8a7a5a" stroke-width="0.8"/>
+</svg>

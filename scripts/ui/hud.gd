@@ -1,0 +1,373 @@
+# HUD - 游戏内界面
+# 显示血量、经验条、时间、击杀数
+# 通过代码构建UI，避免.tscn中节点缺失问题
+extends CanvasLayer
+
+const WEAPON_ICONS := {"magic_bolt": "🔮", "fire_ring": "🔥", "lightning_chain": "⚡", "ice_storm": "❄️", "holy_spear": "🏹", "poison_cloud": "☠️", "sword_orbit": "⚔️", "piercing_arrow": "🎯"}
+const PASSIVE_ICONS := {"max_hp": "❤️", "speed": "👟", "magnet": "🧲", "armor": "🛡️", "exp_bonus": "💎", "crit": "🎯", "lifesteal": "🩸", "luck": "🍀", "shield_max": "🔰"}
+
+var equip_box: VBoxContainer
+var hp_bar: ProgressBar
+var hp_label: Label
+var exp_bar: ProgressBar
+var level_label: Label
+var timer_label: Label
+var kill_label: Label
+var gold_label: Label
+var mode_label: Label
+var boss_hp_bar: ProgressBar
+var boss_name_label: Label
+var low_hp_overlay: ColorRect
+
+var _low_hp_tween: Tween
+var _exp_pulse_tween: Tween
+
+
+func _ready() -> void:
+	_create_ui()
+	_connect_signals()
+	_update_all()
+
+
+func _process(_delta: float) -> void:
+	# 经验溢出自动补升（面板关闭后触发下一级）
+	if GameState.is_paused:
+		return
+	if GameState.is_game_over:
+		return
+	if GameState.current_exp >= GameState.exp_to_next_level:
+		if GameState.player_level < GameState.max_player_level:
+			_level_up()
+
+
+func _create_ui() -> void:
+	# ─── 底层：低血量红色覆盖 ───
+	low_hp_overlay = ColorRect.new()
+	low_hp_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	low_hp_overlay.color = Color(1, 0, 0, 0.0)
+	low_hp_overlay.visible = false
+	low_hp_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(low_hp_overlay)
+
+	# ─── 主容器 ───
+	var margin = MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(margin)
+
+	var hbox = HBoxContainer.new()
+	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(hbox)
+
+	# ─── 左面板 ───
+	var left_panel = VBoxContainer.new()
+	left_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(left_panel)
+
+	# 等级标签
+	level_label = Label.new()
+	level_label.text = "Lv.1"
+	level_label.add_theme_font_size_override("font_size", 18)
+	left_panel.add_child(level_label)
+
+	# HP条
+	hp_bar = ProgressBar.new()
+	hp_bar.custom_minimum_size = Vector2(300, 24)
+	hp_bar.show_percentage = false
+	hp_bar.min_value = 0
+	hp_bar.max_value = 100
+	hp_bar.value = 100
+	left_panel.add_child(hp_bar)
+
+	hp_label = Label.new()
+	hp_label.text = "100 / 100"
+	hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hp_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hp_bar.add_child(hp_label)
+
+	# EXP条
+	exp_bar = ProgressBar.new()
+	exp_bar.custom_minimum_size = Vector2(300, 12)
+	exp_bar.show_percentage = false
+	exp_bar.min_value = 0
+	exp_bar.max_value = 100
+	exp_bar.value = 0
+	left_panel.add_child(exp_bar)
+
+	# ─── 中间弹性间距 ───
+	var spacer = Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(spacer)
+
+	# ─── 右面板 ───
+	var right_panel = VBoxContainer.new()
+	right_panel.size_flags_horizontal = Control.SIZE_SHRINK_END
+	right_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(right_panel)
+
+	mode_label = Label.new()
+	mode_label.text = "🏰 关卡" if GameState.current_mode == "level" else "♾️ 无尽"
+	mode_label.add_theme_font_size_override("font_size", 14)
+	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mode_label.modulate = Color(0.6, 0.8, 1.0)
+	right_panel.add_child(mode_label)
+
+	timer_label = Label.new()
+	timer_label.text = "00:00"
+	timer_label.add_theme_font_size_override("font_size", 20)
+	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right_panel.add_child(timer_label)
+
+	kill_label = Label.new()
+	kill_label.text = "击杀: 0"
+	kill_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right_panel.add_child(kill_label)
+
+	gold_label = Label.new()
+	gold_label.text = "Gold: 0"
+	gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right_panel.add_child(gold_label)
+
+	# ─── BOSS 血条（居中顶部，默认隐藏）───
+	var boss_box = VBoxContainer.new()
+	boss_box.name = "BossBox"
+	boss_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	boss_box.offset_top = 44
+	boss_box.offset_left = -210
+	boss_box.offset_right = 210
+	boss_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	boss_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_box.visible = false
+	add_child(boss_box)
+
+	boss_name_label = Label.new()
+	boss_name_label.text = "👑 暗影领主"
+	boss_name_label.add_theme_font_size_override("font_size", 16)
+	boss_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_name_label.modulate = Color(1.0, 0.4, 0.4)
+	boss_box.add_child(boss_name_label)
+
+	boss_hp_bar = ProgressBar.new()
+	boss_hp_bar.custom_minimum_size = Vector2(420, 18)
+	boss_hp_bar.show_percentage = false
+	boss_hp_bar.min_value = 0
+	boss_hp_bar.max_value = 800
+	boss_hp_bar.value = 800
+	boss_box.add_child(boss_hp_bar)
+
+	# 装备栏（左下角，显示武器/被动）
+	equip_box = VBoxContainer.new()
+	equip_box.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	equip_box.offset_left = 12
+	equip_box.offset_top = -78
+	equip_box.offset_bottom = -10
+	equip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(equip_box)
+
+
+func _connect_signals() -> void:
+	EventBus.player_damaged.connect(_on_player_damaged)
+	EventBus.player_healed.connect(_on_player_healed)
+	EventBus.exp_collected.connect(_on_exp_collected)
+	EventBus.game_time_updated.connect(_on_time_updated)
+	EventBus.enemy_killed.connect(_on_enemy_killed)
+	EventBus.gold_collected.connect(_on_gold_collected)
+	EventBus.player_level_up.connect(_on_level_up)
+	EventBus.low_hp_warning_triggered.connect(_show_low_hp_warning)
+	EventBus.low_hp_warning_cleared.connect(_hide_low_hp_warning)
+	EventBus.boss_spawned.connect(_on_boss_spawned)
+	EventBus.boss_hp_changed.connect(_on_boss_hp_changed)
+	EventBus.boss_killed.connect(_on_boss_killed)
+	EventBus.achievement_unlocked.connect(_on_achievement)
+	EventBus.game_started.connect(_update_all)     # 开局/重开后刷新全部显示
+	EventBus.player_revived.connect(_update_all)    # 复活后刷新血量/等级
+	EventBus.upgrade_selected.connect(_on_upgrade_selected)  # 升级后刷新装备栏
+
+
+# ─── 信号处理 ───
+
+func _on_player_damaged(_amount: float, current_hp: float, _max_hp: float) -> void:
+	_update_hp_display(current_hp)
+
+
+func _on_player_healed(_amount: float, current_hp: float) -> void:
+	_update_hp_display(current_hp)
+
+
+func _update_hp_display(cur: float = -1.0) -> void:
+	if cur < 0:
+		cur = GameState.current_hp
+	hp_bar.max_value = GameState.max_hp
+	hp_bar.value = max(0, cur)
+	hp_label.text = "%d / %d" % [int(max(0, cur)), int(GameState.max_hp)]
+
+	if cur < GameState.max_hp * 0.3:
+		EventBus.low_hp_warning_triggered.emit(cur / GameState.max_hp)
+	else:
+		EventBus.low_hp_warning_cleared.emit()
+
+
+func _on_exp_collected(amount: int) -> void:
+	if GameState.player_level >= GameState.max_player_level:
+		return  # 50 级后停止累计经验（D-9）
+	GameState.current_exp += float(amount) * (1.0 + GameState.exp_bonus) * GameState.exp_buff_mult
+	exp_bar.max_value = GameState.exp_to_next_level
+	exp_bar.value = GameState.current_exp
+
+	# 经验条呼吸灯（>80%时脉冲）
+	var pct = GameState.current_exp / max(GameState.exp_to_next_level, 1.0)
+	if pct > 0.8 and not _exp_pulse_tween:
+		_start_exp_pulse()
+	elif pct <= 0.8 and _exp_pulse_tween:
+		_stop_exp_pulse()
+
+	if GameState.current_exp >= GameState.exp_to_next_level:
+		if GameState.player_level < GameState.max_player_level:
+			_level_up()
+
+
+func _start_exp_pulse() -> void:
+	_exp_pulse_tween = create_tween().set_loops()
+	_exp_pulse_tween.tween_property(exp_bar, "modulate:a", 0.5, 0.5)
+	_exp_pulse_tween.tween_property(exp_bar, "modulate:a", 1.0, 0.5)
+
+
+func _stop_exp_pulse() -> void:
+	if _exp_pulse_tween:
+		_exp_pulse_tween.kill()
+		_exp_pulse_tween = null
+	exp_bar.modulate.a = 1.0
+
+
+func _level_up() -> void:
+	_stop_exp_pulse()
+	GameState.current_exp -= GameState.exp_to_next_level
+	GameState.player_level += 1
+	GameState.exp_to_next_level = GameState._calculate_exp_for_level(GameState.player_level)
+	exp_bar.max_value = GameState.exp_to_next_level
+	exp_bar.value = GameState.current_exp
+	level_label.text = "Lv.%d" % GameState.player_level
+	EventBus.player_level_up.emit(GameState.player_level)
+
+
+func _on_level_up(level: int) -> void:
+	level_label.text = "Lv.%d" % level
+
+
+func _on_time_updated(seconds: float) -> void:
+	var mins = int(seconds) / 60
+	var secs = int(seconds) % 60
+	timer_label.text = "%02d:%02d" % [mins, secs]
+
+
+func _on_enemy_killed(_type: String, _pos: Vector2, _exp: int, _gold: int) -> void:
+	GameState.kills += 1
+	kill_label.text = "击杀: %d" % GameState.kills
+
+
+func _on_gold_collected(amount: int) -> void:
+	GameState.gold_earned += amount
+	gold_label.text = "Gold: %d" % GameState.gold_earned
+
+
+func _show_low_hp_warning(_pct: float) -> void:
+	low_hp_overlay.visible = true
+	if _low_hp_tween:
+		_low_hp_tween.kill()
+	_low_hp_tween = create_tween().set_loops()
+	_low_hp_tween.tween_property(low_hp_overlay, "color:a", 0.3, 0.75)
+	_low_hp_tween.tween_property(low_hp_overlay, "color:a", 0.05, 0.75)
+
+
+func _hide_low_hp_warning() -> void:
+	low_hp_overlay.visible = false
+	if _low_hp_tween:
+		_low_hp_tween.kill()
+		_low_hp_tween = null
+
+
+func _on_boss_spawned() -> void:
+	var bb = get_node_or_null("BossBox")
+	if bb:
+		bb.visible = true
+
+
+func _on_boss_hp_changed(cur: float, mx: float) -> void:
+	if boss_hp_bar:
+		boss_hp_bar.max_value = mx
+		boss_hp_bar.value = cur
+
+
+func _on_boss_killed() -> void:
+	var bb = get_node_or_null("BossBox")
+	if bb:
+		bb.visible = false
+
+
+func _on_achievement(id: String) -> void:
+	var info = SaveSystem.ACHIEVEMENTS.get(id, {"name": id, "gold": 0})
+	var label = Label.new()
+	label.text = "🏆 成就：%s (+%d💰)" % [info.get("name", id), int(info.get("gold", 0))]
+	label.add_theme_font_size_override("font_size", 18)
+	label.modulate = Color(1, 0.9, 0.3, 0)
+	label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	label.offset_top = 110
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(label)
+	var t = create_tween()
+	t.tween_property(label, "modulate:a", 1.0, 0.3)
+	t.tween_interval(2.5)
+	t.tween_property(label, "modulate:a", 0.0, 0.5)
+	t.tween_callback(label.queue_free)
+
+
+func _update_all() -> void:
+	_update_hp_display(GameState.current_hp)
+	exp_bar.max_value = GameState.exp_to_next_level
+	exp_bar.value = GameState.current_exp
+	level_label.text = "Lv.%d" % GameState.player_level
+	kill_label.text = "击杀: %d" % GameState.kills
+	gold_label.text = "Gold: %d" % GameState.gold_earned
+	_refresh_equip()
+
+
+func _on_upgrade_selected(_id: String) -> void:
+	_refresh_equip()
+
+
+func _refresh_equip() -> void:
+	if not equip_box:
+		return
+	for c in equip_box.get_children():
+		c.queue_free()
+	var wrow = HBoxContainer.new()
+	wrow.add_theme_constant_override("separation", 6)
+	wrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for wid in GameState.active_weapons:
+		var lbl = Label.new()
+		var is_super = GameState.super_weapons.has(wid)
+		lbl.text = "%s%d%s" % [WEAPON_ICONS.get(wid, "⚔️"), int(GameState.active_weapons[wid]), ("★" if is_super else "")]
+		lbl.add_theme_font_size_override("font_size", 16)
+		if is_super:
+			lbl.modulate = Color(1.0, 0.85, 0.3)
+		wrow.add_child(lbl)
+	equip_box.add_child(wrow)
+	var prow = HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 6)
+	prow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for pid in GameState.active_passives:
+		var lbl = Label.new()
+		lbl.text = "%s%d" % [PASSIVE_ICONS.get(pid, "·"), int(GameState.active_passives[pid])]
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.modulate = Color(0.8, 0.9, 1.0)
+		prow.add_child(lbl)
+	equip_box.add_child(prow)

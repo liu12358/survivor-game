@@ -1,0 +1,31 @@
+[gd_scene load_steps=4 format=3 uid="uid://slime_big_scene"]
+
+[ext_resource type="Script" path="res://scripts/enemies/base_enemy.gd" id="1_enemy"]
+[ext_resource type="Texture2D" path="res://assets/sprites/enemies/slime_big.svg" id="2_texture"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_big"]
+radius = 20.0
+
+[node name="SlimeBig" type="CharacterBody2D" groups=["enemy"]]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_enemy")
+enemy_type = "slime_big"
+max_health = 40.0
+damage = 15.0
+move_speed = 60.0
+exp_value = 12
+gold_value = 3
+split_on_death = true
+split_count = 2
+split_type = "slime_small"
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_texture")
+scale = Vector2(1.5, 1.5)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_big")
+
+[node name="HitFlashTimer" type="Timer" parent="."]
+one_shot = true

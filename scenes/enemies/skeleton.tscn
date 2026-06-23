@@ -1,0 +1,32 @@
+[gd_scene load_steps=4 format=3 uid="uid://skeleton_scene"]
+
+[ext_resource type="Script" path="res://scripts/enemies/base_enemy.gd" id="1_enemy"]
+[ext_resource type="Texture2D" path="res://assets/sprites/enemies/skeleton.svg" id="2_texture"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_skel"]
+radius = 14.0
+
+[node name="Skeleton" type="CharacterBody2D" groups=["enemy"]]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_enemy")
+enemy_type = "skeleton"
+max_health = 25.0
+damage = 12.0
+move_speed = 55.0
+exp_value = 10
+gold_value = 2
+move_pattern = 2
+charge_speed_mult = 3.0
+charge_duration = 1.0
+charge_cooldown = 3.0
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_texture")
+scale = Vector2(1.5, 1.5)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_skel")
+
+[node name="HitFlashTimer" type="Timer" parent="."]
+one_shot = true

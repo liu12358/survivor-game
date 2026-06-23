@@ -1,0 +1,237 @@
+# GameState - 全局游戏状态管理
+# 管理局内临时数据和局外全局数据
+extends Node
+
+# ─── 局内临时数据（每局重置） ───
+var current_hp: float = 100.0
+var max_hp: float = 100.0
+var current_exp: float = 0.0
+var exp_to_next_level: float = 100.0
+var player_level: int = 1
+var max_player_level: int = 50
+var kills: int = 0
+var gold_earned: int = 0
+var survival_time: float = 0.0
+var is_game_over: bool = false
+var is_paused: bool = false
+var modal_active: bool = false          # 模态面板（升级/结算）显示中，抑制 ESC 暂停菜单（D-2）
+var game_seed: String = ""
+var rng := RandomNumberGenerator.new()   # 统一随机源（种子复刻，P2-11）
+var is_custom_seed: bool = false
+var current_difficulty: String = "normal"
+var current_mode: String = "level"     # "level" 关卡模式 / "infinite" 无尽模式
+var current_character: String = "mage"
+var current_map: String = "grassland"
+
+# 武器/被动状态
+var active_weapons: Dictionary = {}       # {weapon_id: level}
+var active_passives: Dictionary = {}      # {passive_id: level}
+var weapon_affixes: Dictionary = {}       # {weapon_id: [affix_list]}
+var max_weapon_slots: int = 6
+var super_weapons: Array[String] = []     # 已合成的超武列表
+
+# 道具状态
+var revive_count: int = 0
+var max_revive_count: int = 1
+var shield_hp: float = 0.0
+var shield_max: float = 0.0
+
+# Buff 计时器
+var active_buffs: Dictionary = {}         # {buff_id: remaining_seconds}
+
+# 玩家基础属性（用于伤害计算）
+var base_damage: float = 1.0
+var damage_bonus: float = 0.0            # 累加增幅
+var crit_chance: float = 0.0
+var crit_multiplier: float = 1.5
+var move_speed: float = 200.0
+var base_move_speed: float = 200.0
+var pickup_range: float = 60.0
+var base_pickup_range: float = 60.0
+var armor: float = 0.0
+var hp_regen: float = 0.0                # 每秒回血
+var lifesteal: float = 0.0               # 吸血比例
+var exp_bonus: float = 0.0               # 经验加成
+var drop_rate: float = 0.0               # 掉率加成
+var shield_passive_lv: int = 0           # 护盾被动等级
+
+# 移速乘区（减速 / 限时加速 buff）
+var slow_amount: float = 0.0             # 0~0.6，减速比例
+var speed_buff_mult: float = 1.0         # 限时加速 buff 乘数
+var damage_buff_mult: float = 1.0        # 限时增伤 buff 乘数
+var exp_buff_mult: float = 1.0           # 限时经验翻倍 buff
+var invincible_buff: bool = false        # 限时无敌 buff
+var cheat_godmode: bool = false          # 金手指无敌（F3 菜单）
+
+# 全局词条加成占位（D-4，P1 接入词条时写入；现仅 lifesteal 接入以避免回归）
+var affix_move_speed: float = 0.0        # 轻盈：每层 +0.05
+var affix_armor: float = 0.0             # 坚毅：每层 +2
+var affix_exp_bonus: float = 0.0         # 贪婪：每层 +0.10
+var affix_damage_bonus: float = 0.0
+var affix_lifesteal: float = 0.0         # 武器吸血词条累加
+var char_crit_bonus: float = 0.0         # 角色专属暴击加成（弓手·鹰眼）
+
+const BASE_MAX_HP := 100.0
+
+# Meta 永久强化
+var meta_hp_bonus: int = 0
+var meta_speed_bonus: int = 0
+var meta_exp_bonus: int = 0
+var meta_armor_bonus: int = 0
+var meta_damage_bonus: int = 0
+var meta_magnet_bonus: int = 0
+var meta_drop_rate_bonus: int = 0
+
+# ─── 局外全局数据（跨局持久化） ───
+var total_gold: int = 0
+var total_kills: int = 0
+var total_playtime: float = 0.0
+var highest_survival: float = 0.0
+var total_games: int = 0
+
+# 解锁状态
+var unlocked_characters: Array = ["mage"]   # 非 typed：便于从存档 Array 直接赋值
+var unlocked_weapons: Array[String] = ["magic_bolt"]
+var unlocked_achievements: Array = []   # 非 typed：便于从存档赋值
+var unlocked_skins: Array = ["default"]
+var selected_skin: String = "default"
+
+const SKINS := {
+	"default": {"name": "星蓝", "color": Color(1, 1, 1), "price": 0},
+	"gold": {"name": "星金", "color": Color(1.3, 1.15, 0.6), "price": 100},
+	"shadow": {"name": "暗影", "color": Color(0.65, 0.55, 0.95), "price": 150},
+	"emerald": {"name": "翡翠", "color": Color(0.6, 1.15, 0.7), "price": 150},
+	"crimson": {"name": "绯红", "color": Color(1.35, 0.6, 0.6), "price": 200},
+}
+
+# 图鉴记录
+var bestiary_kills: Dictionary = {}       # {enemy_type: kill_count}
+var weapons_used: Dictionary = {}         # {weapon_id: games_used}
+
+# ─── 难度配置 ───
+const DIFFICULTY_CONFIG = {
+	"easy":    {"hp_mult": 0.7, "speed_mult": 0.8, "count_mult": 0.7, "exp_mult": 1.2, "drop_mult": 1.0},
+	"normal":  {"hp_mult": 1.0, "speed_mult": 1.0, "count_mult": 1.0, "exp_mult": 1.0, "drop_mult": 1.0},
+	"hard":    {"hp_mult": 1.5, "speed_mult": 1.2, "count_mult": 1.3, "exp_mult": 1.0, "drop_mult": 1.2},
+	"nightmare": {"hp_mult": 2.5, "speed_mult": 1.5, "count_mult": 1.6, "exp_mult": 0.8, "drop_mult": 1.5},
+	"starfall":  {"hp_mult": 4.0, "speed_mult": 2.0, "count_mult": 2.0, "exp_mult": 0.6, "drop_mult": 2.0},
+}
+
+# ─── 方法 ───
+
+func reset_game_data() -> void:
+	#
+	current_hp = max_hp
+	current_exp = 0.0
+	exp_to_next_level = _calculate_exp_for_level(1)
+	player_level = 1
+	kills = 0
+	gold_earned = 0
+	survival_time = 0.0
+	is_game_over = false
+	is_paused = false
+	modal_active = false
+	active_weapons.clear()
+	active_passives.clear()
+	weapon_affixes.clear()
+	super_weapons.clear()
+	revive_count = 0
+	shield_hp = 0.0
+	shield_max = 0.0
+	active_buffs.clear()
+	slow_amount = 0.0
+	speed_buff_mult = 1.0
+	damage_buff_mult = 1.0
+	exp_buff_mult = 1.0
+	invincible_buff = false
+	affix_move_speed = 0.0
+	affix_armor = 0.0
+	affix_exp_bonus = 0.0
+	affix_damage_bonus = 0.0
+	affix_lifesteal = 0.0
+	char_crit_bonus = 0.0
+	_reset_player_stats()
+	current_hp = max_hp
+
+func _reset_player_stats() -> void:
+	# 兼容旧调用：统一走 recalc_stats()
+	crit_multiplier = 1.5
+	hp_regen = 0.0
+	shield_passive_lv = 0
+	recalc_stats()
+
+
+# 依据 meta + 被动(active_passives) + 全局词条 统一重算玩家运行时数值。
+# 单一数据源（D-1）：被动等级以字典为准，避免各处直接赋值互相覆盖。
+func recalc_stats() -> void:
+	var sp_lv := int(active_passives.get("speed", 0))
+	move_speed = base_move_speed * (1.0 + meta_speed_bonus * 0.02 + sp_lv * 0.15 + affix_move_speed)
+
+	var mag_lv := int(active_passives.get("magnet", 0))
+	pickup_range = base_pickup_range * (1.0 + meta_magnet_bonus * 0.05 + mag_lv * 0.30)
+
+	armor = meta_armor_bonus * 1.0 + int(active_passives.get("armor", 0)) * 2.0 + affix_armor
+	exp_bonus = meta_exp_bonus * 0.03 + int(active_passives.get("exp_bonus", 0)) * 0.20 + affix_exp_bonus
+	damage_bonus = meta_damage_bonus * 0.03 + affix_damage_bonus
+	crit_chance = min(0.60, int(active_passives.get("crit", 0)) * 0.05 + char_crit_bonus)
+	lifesteal = int(active_passives.get("lifesteal", 0)) * 0.03 + affix_lifesteal
+	drop_rate = int(active_passives.get("luck", 0)) * 0.10
+
+	# 最大 HP：上限提升时当前 HP 同步增加（修复 B-3「幻血」）
+	var hp_lv := int(active_passives.get("max_hp", 0))
+	var new_max := BASE_MAX_HP + meta_hp_bonus * 5.0 + hp_lv * 25.0
+	var gain := new_max - max_hp
+	max_hp = new_max
+	if gain > 0.0:
+		current_hp = min(current_hp + gain, max_hp)
+	else:
+		current_hp = min(current_hp, max_hp)
+
+
+# 含减速 / 加速 buff 的实际移速（供 Player 每帧读取，修复 B-4）
+func effective_move_speed() -> float:
+	return move_speed * (1.0 - slow_amount) * speed_buff_mult
+
+func _calculate_exp_for_level(level: int) -> float:
+	#
+	return 100.0 + pow(float(level), 1.5) * 20.0
+
+func get_difficulty_config() -> Dictionary:
+	return DIFFICULTY_CONFIG.get(current_difficulty, DIFFICULTY_CONFIG["normal"])
+
+
+# 初始化随机种子（空=随机生成；自定义=可复刻），P2-11
+func init_rng(seed_str: String) -> void:
+	var s := seed_str.strip_edges()
+	if s == "":
+		rng.randomize()
+		game_seed = "%08X" % (int(rng.seed) & 0xFFFFFFFF)
+		is_custom_seed = false
+	else:
+		rng.seed = hash(s)
+		game_seed = s.to_upper()
+		is_custom_seed = true
+
+func apply_meta_bonuses() -> void:
+	recalc_stats()
+	current_hp = max_hp
+
+
+# 角色专属被动（开局应用）
+func apply_character_passive() -> void:
+	char_crit_bonus = 0.0
+	if current_character == "selene":
+		char_crit_bonus = 0.10   # 弓手·鹰眼：暴击 +10%（射程见 effective_range_mult）
+	recalc_stats()
+
+
+# 攻击范围倍率：法师·星尘共鸣（每 5 级 +5%）/ 弓手·鹰眼（+25%）
+func effective_range_mult() -> float:
+	if current_character == "selene":
+		return 1.25
+	elif current_character == "mage":
+		return 1.0 + floor(player_level / 5.0) * 0.05
+	return 1.0
+
+func get_damage_multiplier() -> float:
+	return (1.0 + damage_bonus) * damage_buff_mult
