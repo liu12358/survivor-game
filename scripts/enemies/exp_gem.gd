@@ -6,13 +6,18 @@ extends Area2D
 @export var exp_amount: int = 5
 @export var gold_amount: int = 0
 @export var pickup_type: String = "exp"  # exp / gold / heal / shield / buff
+@export var gem_tier: int = 1            # 宝石阶级: 1=绿(低) 2=蓝(中) 3=紫(高)
 
 var is_magnetized: bool = false
 var magnet_speed: float = 800.0
 var fly_speed: float = 0.0
-var _lifetime: float = 30.0  # 30秒后自动消失
+var _lifetime: float = 30.0
 var _time_alive: float = 0.0
 var target_player: Node2D = null
+var _pool_ref: Node = null
+var _initial_dist: float = 0.0           # 磁吸起始距离
+var _arc_offset: float = 0.0             # 弧形摆动偏移
+var _mergeable: bool = true              # 可被合并
 
 @onready var sprite: Sprite2D = $Sprite2D
 
@@ -29,17 +34,36 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_time_alive += delta
 	if _time_alive > _lifetime:
-		queue_free()
+		_release_to_pool()
 		return
 
 	if is_magnetized:
 		if not target_player or not is_instance_valid(target_player):
 			is_magnetized = false
 			return
-		var dir = global_position.direction_to(target_player.global_position)
-		global_position += dir * magnet_speed * delta
+		var to_player = target_player.global_position - global_position
+		var dist = to_player.length()
+		if dist < 5.0:
+			# 已被玩家拾取区域捕获，直接触发
+			_pickup(target_player)
+			return
+
+		var dir = to_player.normalized()
+
+		# Ease-In 二次加速曲线: 距离越近飞得越快
+		var t = clamp(1.0 - dist / max(_initial_dist, 0.01), 0.0, 1.0)
+		var speed = magnet_speed * (1.0 + t * t * 2.0)
+
+		# 靠近 10px 内触发弧形摆动
+		var arc = 0.0
+		if dist < 50.0:
+			var arc_factor = clamp(1.0 - (dist - 5.0) / 45.0, 0.0, 1.0)
+			arc = sin(_time_alive * 14.0 + _arc_offset) * 3.0 * arc_factor * arc_factor
+
+		var movement = dir * speed * delta
+		movement += dir.orthogonal() * arc * delta * 60.0
+		global_position += movement
 	elif fly_speed > 0:
-		# 生成时的小弹跳
 		var falloff = _time_alive / 0.5
 		if falloff < 1.0:
 			global_position += Vector2(randf_range(-1, 1), -1).normalized() * fly_speed * (1.0 - falloff) * delta
@@ -84,12 +108,89 @@ func _pickup(player: Node2D) -> void:
 			EventBus.item_picked_up.emit("feather", {"max_revives": GameState.max_revive_count})
 
 	EventBus.screen_shake_requested.emit(1.0, 0.05)
-	queue_free()
+	_release_to_pool()
+
+
+func _release_to_pool() -> void:
+	remove_from_group("gem")
+	is_magnetized = false
+	target_player = null
+	_time_alive = 0.0
+	if _pool_ref and _pool_ref.has_method("release"):
+		_pool_ref.release(self)
+	else:
+		queue_free()
+
+
+func set_pool_ref(pool: Node) -> void:
+	_pool_ref = pool
+
+
+func reset_for_pool() -> void:
+	"""从池中重用时重置"""
+	_time_alive = 0.0
+	is_magnetized = false
+	fly_speed = 0.0
+	target_player = null
+	exp_amount = 5
+	gold_amount = 0
+	pickup_type = "exp"
+	gem_tier = 1
+	_initial_dist = 0.0
+	_arc_offset = 0.0
+	_mergeable = true
+	_set_color_by_type()
+	visible = true
+	process_mode = Node.PROCESS_MODE_INHERIT
+	if get_child_count() < 2:
+		var glow := VFX.make_glow(sprite.modulate, 28.0, 0.55)
+		add_child(glow)
+	add_to_group("gem")
 
 
 func enable_magnet(player_ref: Node2D) -> void:
 	is_magnetized = true
 	target_player = player_ref
+	_initial_dist = global_position.distance_to(player_ref.global_position)
+	_arc_offset = randf() * TAU
+
+
+func merge_into(other_gem: Node) -> bool:
+	"""吸收另一个同类型宝石，等量叠加并升级"""
+	if not other_gem.has_method("merge_into") or not _mergeable:
+		return false
+	if pickup_type != other_gem.pickup_type:
+		# 不同类型不合并（exp 只能合 exp）
+		return false
+	if pickup_type == "exp":
+		exp_amount += other_gem.exp_amount
+		gold_amount += other_gem.gold_amount
+		# 经验累计>50 → tier2, >200 → tier3
+		if exp_amount >= 200 and gem_tier < 3:
+			gem_tier = 3
+		elif exp_amount >= 50 and gem_tier < 2:
+			gem_tier = 2
+		_set_tier_appearance()
+	elif pickup_type == "gold":
+		gold_amount += other_gem.gold_amount + other_gem.exp_amount
+		if gold_amount >= 50:
+			gem_tier = 2
+		_set_tier_appearance()
+	# 让被合并的宝石消失
+	other_gem._mergeable = false
+	if other_gem.has_method("_release_to_pool"):
+		other_gem._release_to_pool()
+	else:
+		other_gem.queue_free()
+	return true
+
+
+func _set_tier_appearance() -> void:
+	"""根据阶级调整外观"""
+	match gem_tier:
+		1: sprite.scale = Vector2(1.0, 1.0)
+		2: sprite.scale = Vector2(1.3, 1.3)
+		3: sprite.scale = Vector2(1.6, 1.6)
 
 
 func _set_color_by_type() -> void:

@@ -61,6 +61,16 @@ const EPIC_AFFIXES = [
 	{"name": "坚毅", "type": "armor",      "scope": "global", "value": 2.0,  "desc": "全局减伤 +2（史诗）"},
 ]
 
+# 置换词条 3% 概率：「有得有失」高级词条
+const INVERSE_AFFIXES = [
+	{"name": "孤注一掷", "type": "inverse_all_or_nothing", "scope": "weapon", "value": 0.0,
+	 "desc": "该武器伤害 +50% / 攻速 -20%", "pos": {"type": "damage", "value": 0.50},
+	 "neg": {"type": "speed", "value": -0.20}},
+	{"name": "血色契约", "type": "inverse_blood_pact", "scope": "global", "value": 0.0,
+	 "desc": "全局吸血 +5% / 最大生命值 -20%", "pos": {"type": "lifesteal", "value": 0.05},
+	 "neg": {"type": "max_hp_pct", "value": -0.20}},
+]
+
 # ─── 类别权重 ───
 const WEIGHT_WEAPON_UPGRADE = 60
 const WEIGHT_NEW_WEAPON = 25
@@ -276,7 +286,10 @@ func _roll_affix_for_card(card: Dictionary) -> Dictionary:
 	if roll < 0.02:  # 2% 史诗
 		affix = EPIC_AFFIXES[GameState.rng.randi() % EPIC_AFFIXES.size()]
 		card["title"] = card["title"] + " ✦"
-	elif roll < 0.07:  # 5% 稀有
+	elif roll < 0.05:  # 3% 置换（有得有失）
+		affix = INVERSE_AFFIXES.duplicate(true)[GameState.rng.randi() % INVERSE_AFFIXES.size()]
+		card["title"] = card["title"] + " ⚖️"
+	elif roll < 0.10:  # 5% 稀有
 		affix = RARE_AFFIXES[GameState.rng.randi() % RARE_AFFIXES.size()]
 		card["title"] = card["title"] + " ★"
 	elif roll < 0.22:  # 15% 普通
@@ -731,6 +744,123 @@ func _check_super_weapon_synthesis() -> void:
 	if GameState.active_weapons.get("poison_cloud", 0) >= 7 and GameState.active_passives.get("luck", 0) >= 5:
 		if not GameState.super_weapons.has("poison_cloud"):
 			_synthesize_super("poison_cloud", "瘟疫")
+
+	# Mega-Evolution：击杀 BOSS 且可用时检查
+	_check_mega_evolution()
+
+
+# ─── 双重超武合成（Mega-Evolution） ───
+
+const MEGA_RECIPES = {
+	"mega_inferno_glacier": {
+		"name": "🌀 湮灭冰火环",
+		"requires": ["fire_ring", "ice_storm"],
+		"desc": "冷热交替触发碎裂，造成 200% 真实伤害",
+	},
+	# 后续可按此格式扩展更多配方
+}
+
+func _check_mega_evolution() -> void:
+	if not GameState.mega_evolution_available:
+		return
+	for rid in MEGA_RECIPES:
+		if rid in GameState.mega_weapons:
+			continue
+		var r = MEGA_RECIPES[rid]
+		var has_all := true
+		for wid in r["requires"]:
+			if not GameState.super_weapons.has(wid):
+				has_all = false
+				break
+		if has_all:
+			_synthesize_mega(rid, r)
+			GameState.mega_evolution_available = false
+			return
+
+
+func _synthesize_mega(rid: String, recipe: Dictionary) -> void:
+	# 移除两个基础超武
+	for wid in recipe["requires"]:
+		GameState.super_weapons.erase(wid)
+		GameState.active_weapons.erase(wid)
+		var pl = get_tree().get_nodes_in_group("player")
+		if pl.size() > 0:
+			for child in pl[0].get_children():
+				if child is BaseWeapon and child.weapon_id == wid:
+					child.remove_affixes()
+					child.queue_free()
+					break
+
+	# 注册 Mega 武器
+	GameState.mega_weapons.append(rid)
+	GameState.active_weapons[rid] = 1
+
+	# 特效
+	EventBus.super_weapon_synthesized.emit(recipe["name"])
+	EventBus.screen_shake_requested.emit(12.0, 0.8)
+
+	# 根据配方应用特殊效果
+	match rid:
+		"mega_inferno_glacier":
+			_apply_mega_inferno_glacier()
+
+
+func _apply_mega_inferno_glacier() -> void:
+	"""湮灭冰火环：5 秒交替周期，火环灼烧 + 冰晶冰冻，交替时触发 200% 真实伤害碎裂"""
+	var pl = get_tree().get_nodes_in_group("player")
+	if pl.size() == 0:
+		return
+	var p = pl[0]
+	# 添加一个周期 Timer
+	var t := Timer.new()
+	t.name = "MegaInfernoGlacierTimer"
+	t.wait_time = 5.0
+	t.one_shot = false
+	t.timeout.connect(func(): _mega_alternate_proc(p))
+	p.add_child(t)
+	t.start()
+
+
+func _mega_alternate_proc(player: Node2D) -> void:
+	"""每 5 秒周期交替触发真实伤害碎裂"""
+	# 视觉：爆炸光圈
+	var ring := Sprite2D.new()
+	ring.texture = _make_mega_ring_tex()
+	ring.global_position = player.global_position
+	ring.modulate = Color(1.0, 0.5, 0.8, 0.7)
+	get_tree().current_scene.add_child(ring)
+	var tw := create_tween()
+	tw.tween_property(ring, "scale", Vector2(5.0, 5.0), 0.5)
+	tw.parallel().tween_property(ring, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(ring.queue_free)
+
+	# 对范围内全部敌人造成 200% 真实伤害（取主武器基础伤害均值）
+	var base := 15.0
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if not is_instance_valid(enemy):
+			continue
+		if player.global_position.distance_to(enemy.global_position) < 200.0:
+			if enemy.has_method("take_damage"):
+				enemy.take_damage(base * 2.0, true)
+			EventBus.damage_number_requested.emit(
+				enemy.global_position + Vector2(0, -20),
+				base * 2.0, true, 3
+			)
+
+	EventBus.screen_shake_requested.emit(6.0, 0.3)
+
+
+func _make_mega_ring_tex() -> Texture2D:
+	var size := 100
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := size / 2
+	for x in range(size):
+		for y in range(size):
+			var d := Vector2(x - c, y - c).length()
+			var alpha: float = max(0.0, 1.0 - d / float(c))
+			img.set_pixel(x, y, Color(1.0, 0.4 + alpha * 0.4, 0.8, alpha * 0.6))
+	return ImageTexture.create_from_image(img)
 
 
 func _synthesize_super(weapon_id: String, super_name: String) -> void:

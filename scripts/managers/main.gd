@@ -28,6 +28,15 @@ var _shake_duration: float = 0.0
 var _shake_priority: float = 0.0
 var _camera_original_pos: Vector2
 
+# Camera Breathing — 动态视场收缩
+const CAMERA_ZOOM_DEFAULT: float = 1.0
+const CAMERA_ZOOM_OUT_MAX: float = 0.85
+const CAMERA_ZOOM_EPIC_IN: float = 1.15
+const CAMERA_ZOOM_SMOOTH: float = 2.5   # 平滑速度
+var _target_zoom: float = CAMERA_ZOOM_DEFAULT
+var _epic_zoom_timer: float = 0.0
+var _epic_zoom_active: bool = false
+
 const GRID_SIZE: float = 96.0
 const MAP_RADIUS: float = 1500.0
 
@@ -139,6 +148,9 @@ func _process(delta: float) -> void:
 	# 震屏衰减
 	_update_screen_shake(delta)
 
+	# 动态视场呼吸
+	_update_camera_zoom(delta)
+
 	# BOSS倒计时 & 生成
 	if GameState.current_mode == "infinite":
 		# 无尽模式：每 INFINITE_BOSS_INTERVAL 秒刷BOSS
@@ -165,7 +177,6 @@ func _process(delta: float) -> void:
 
 
 func _start_game() -> void:
-	#
 	GameState.reset_game_data()
 	GameState.init_rng(GameState.game_seed)
 	GameState.apply_meta_bonuses()
@@ -174,6 +185,12 @@ func _start_game() -> void:
 	_game_ended = false
 	_total_game_time = 0.0
 	_next_boss_time = BOSS_SPAWN_TIME + INFINITE_BOSS_INTERVAL
+
+	# 强制重置全局状态（防止残留）
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	GameState.is_paused = false
+	GameState.is_game_over = false
 
 	# 重置升级面板状态
 	if level_up_panel and level_up_panel.has_method("reset_for_new_game"):
@@ -206,6 +223,12 @@ func _start_game() -> void:
 	# 剑圣·剑气纵横（击杀触发）
 	if not EventBus.enemy_killed.is_connected(_on_kill_sword):
 		EventBus.enemy_killed.connect(_on_kill_sword)
+
+	# 镜头史诗缩放
+	if not EventBus.super_weapon_synthesized.is_connected(_on_epic_moment):
+		EventBus.super_weapon_synthesized.connect(_on_epic_moment)
+	if not EventBus.boss_killed.is_connected(_on_boss_killed_epic):
+		EventBus.boss_killed.connect(_on_boss_killed_epic)
 
 	# 给初始武器
 	_grant_starting_weapon()
@@ -442,11 +465,91 @@ func _make_wave_tex() -> Texture2D:
 func _on_boss_killed() -> void:
 	SaveSystem.unlock_character("argo")  # 击杀 BOSS 解锁剑圣
 	_ach("kill_boss")
+
+	# Mega-Evolution：25% 概率掉落融合宝箱（无尽模式也适用）
+	if GameState.super_weapons.size() >= 2 and GameState.rng.randf() < 0.25:
+		_drop_mega_chest()
+
 	# 关卡模式：击杀 BOSS 即胜利（无尽模式继续生存）
 	if _game_ended:
 		return
 	if GameState.current_mode == "level":
 		_game_victory()
+
+
+func _drop_mega_chest() -> void:
+	"""掉落融合宝箱，拾取后开放 Mega-Evolution"""
+	var chest := Sprite2D.new()
+	var tex := _make_chest_tex()
+	chest.texture = tex
+	chest.global_position = player.global_position + Vector2(randf_range(-60, 60), randf_range(-60, 60))
+	chest.z_index = 10
+	get_tree().current_scene.add_child(chest)
+
+	# 拾取范围
+	var area := Area2D.new()
+	area.collision_layer = 0
+	area.collision_mask = 0
+	var shape := CollisionShape2D.new()
+	var circle := CircleShape2D.new()
+	circle.radius = 30.0
+	shape.shape = circle
+	area.add_child(shape)
+	chest.add_child(area)
+
+	# 闪烁提示
+	var flash := create_tween().set_loops()
+	flash.tween_property(chest, "modulate:a", 0.5, 0.4)
+	flash.tween_property(chest, "modulate:a", 1.0, 0.4)
+
+	# 检测玩家靠近拾取
+	var check := create_tween().set_loops()
+	check.tween_interval(0.2)
+	check.tween_callback(func():
+		if not is_instance_valid(chest):
+			return
+		if chest.global_position.distance_to(player.global_position) < 40.0:
+			flash.kill()
+			chest.queue_free()
+			GameState.mega_evolution_available = true
+			# 大字提示
+			_show_mega_hint()
+	)
+
+	# 30 秒后消失
+	var die := create_tween()
+	die.tween_interval(30.0)
+	die.tween_callback(chest.queue_free)
+
+
+func _show_mega_hint() -> void:
+	var label := Label.new()
+	label.text = "🌀 融合之力！下一轮升级触发双重超武！"
+	label.add_theme_font_size_override("font_size", 28)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	label.offset_top = 120
+	label.modulate = Color(0.8, 0.5, 1.0, 0)
+	label.z_index = 100
+	get_tree().current_scene.add_child(label)
+	var t := create_tween()
+	t.tween_property(label, "modulate:a", 1.0, 0.3)
+	t.tween_interval(3.0)
+	t.tween_property(label, "modulate:a", 0.0, 0.5)
+	t.tween_callback(label.queue_free)
+
+
+func _make_chest_tex() -> Texture2D:
+	var img := Image.create(24, 24, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	# 画一个简单宝箱: 金色方块 + 紫色光芒
+	for x in range(4, 20):
+		for y in range(6, 20):
+			img.set_pixel(x, y, Color(1.0, 0.85, 0.2, 1.0))
+	for x in range(8, 16):
+		for y in range(3, 7):
+			img.set_pixel(x, y, Color(0.8, 0.5, 1.0, 1.0))
+	return ImageTexture.create_from_image(img)
 
 
 func _game_victory() -> void:
@@ -591,6 +694,58 @@ func _update_screen_shake(delta: float) -> void:
 	if _shake_duration <= 0:
 		camera.position = _camera_original_pos
 		_shake_amplitude = 0.0
+
+
+# ─── 动态视场收缩 ───
+
+func _update_camera_zoom(delta: float) -> void:
+	if not camera:
+		return
+
+	# Epic zoom-in 优先
+	if _epic_zoom_active:
+		_epic_zoom_timer -= delta
+		var t = clamp(1.0 - (_epic_zoom_timer / 0.7), 0.0, 1.0)  # 0→1 over 0.7s
+		if _epic_zoom_timer <= 0:
+			# 拉近阶段结束 → 开始平滑恢复
+			_epic_zoom_active = false
+			_target_zoom = CAMERA_ZOOM_DEFAULT
+		else:
+			# 0.7s 内快速拉近到 1.15x
+			_target_zoom = lerpf(CAMERA_ZOOM_DEFAULT, CAMERA_ZOOM_EPIC_IN, t)
+	else:
+		# 根据敌人数量和玩家速度计算呼吸缩放
+		var enemy_count = enemy_spawner.get_enemy_count()
+		var move_factor = 0.0
+		if is_instance_valid(player) and player is CharacterBody2D:
+			var spd = player.velocity.length()
+			var max_speed = GameState.get_effective_move_speed() * 1.5
+			move_factor = clamp(spd / max(max_speed, 0.01), 0.0, 1.0)
+
+		# 同屏怪 > 50 开始拉远，最高拉远到 0.85x
+		var crowd_factor = clamp((enemy_count - 50) / 350.0, 0.0, 1.0)
+		var zoom_factor = move_factor * 0.4 + crowd_factor * 0.6  # crowd 权重更大
+		_target_zoom = lerpf(CAMERA_ZOOM_DEFAULT, CAMERA_ZOOM_OUT_MAX, zoom_factor)
+
+	# 平滑插值
+	var current = camera.zoom.x  # assume uniform zoom
+	var new_zoom = lerpf(current, _target_zoom, delta * CAMERA_ZOOM_SMOOTH)
+	camera.zoom = Vector2(new_zoom, new_zoom)
+
+
+func _on_epic_moment(_name: String = "") -> void:
+	"""超武合成 / BOSS击杀 → 史诗拉近"""
+	_epic_zoom_active = true
+	_epic_zoom_timer = 0.7
+	_target_zoom = CAMERA_ZOOM_EPIC_IN
+	EventBus.screen_shake_requested.emit(10.0, 0.3)
+
+
+func _on_boss_killed_epic() -> void:
+	"""BOSS 击杀时不触发震屏（_on_boss_killed 已发），仅镜头拉近"""
+	_epic_zoom_active = true
+	_epic_zoom_timer = 0.7
+	_target_zoom = CAMERA_ZOOM_EPIC_IN
 
 
 # ─── 信号连接 ───

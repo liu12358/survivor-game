@@ -73,6 +73,9 @@ var _angle_offset: float = 0.0
 const CONTACT_DAMAGE_INTERVAL: float = 0.5
 const CONTACT_DAMAGE_RANGE: float = 42.0
 
+# 对象池引用（池化怪物专用，非池化 = null）
+var _pool_ref: Node = null
+
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var hit_flash_timer: Timer = $HitFlashTimer
 
@@ -317,6 +320,10 @@ func _on_hit_flash_end() -> void:
 
 func _die() -> void:
 	state = EnemyState.DYING
+
+	# 多米诺死亡连锁：推开周围敌人
+	_domino_push()
+
 	EventBus.enemy_killed.emit(enemy_type, global_position, int(exp_value * elite_exp_mult), gold_value)
 
 	_spawn_death_particles()
@@ -336,7 +343,11 @@ func _die() -> void:
 		EventBus.elite_killed.emit(global_position, {"affix": elite_affix, "exp_bonus": exp_value})
 
 	remove_from_group("enemy")
-	queue_free()
+	# 池化怪物释放回池，非池化直接销毁
+	if _pool_ref and _pool_ref.has_method("release"):
+		_pool_ref.release(self)
+	else:
+		queue_free()
 
 
 func _split_on_death() -> void:
@@ -475,3 +486,54 @@ func _summon_minion() -> void:
 	m.global_position = global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
 	get_tree().current_scene.add_child.call_deferred(m)
 	EventBus.enemy_spawned.emit(m)
+
+
+# ─── 多米诺击退连锁 ───
+
+func _domino_push() -> void:
+	"""死亡时推开周围敌人，形成多米诺骨牌效应"""
+	const PUSH_RADIUS := 80.0
+	const PUSH_FORCE := 150.0
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if not is_instance_valid(enemy) or enemy == self:
+			continue
+		var dist := global_position.distance_to(enemy.global_position)
+		if dist < PUSH_RADIUS and dist > 0.1:
+			var dir: Vector2 = (enemy.global_position - global_position).normalized()
+			var force: float = PUSH_FORCE * (1.0 - dist / PUSH_RADIUS)
+			if enemy.has_method("apply_knockback"):
+				enemy.apply_knockback(dir * force)
+
+
+func reset_for_pool() -> void:
+	"""从池中重新激活时重置状态"""
+	current_health = max_health * elite_hp_mult
+	state = EnemyState.CHASING
+	is_elite = false
+	is_retreating = false
+	_is_charging = false
+	_slow_active = false
+	_dot_dps = 0.0
+	_dot_time = 0.0
+	_dot_tick = 0.0
+	extra_affixes.clear()
+	_contact_damage_timer = 0.0
+	if sprite:
+		sprite.modulate = Color.WHITE
+		sprite.scale = Vector2.ONE
+	scale = Vector2.ONE
+	visible = true
+	process_mode = Node.PROCESS_MODE_INHERIT
+
+
+func set_pool_ref(pool: Node) -> void:
+	_pool_ref = pool
+
+
+func apply_knockback(force: Vector2) -> void:
+	"""被推开（Shield Gate / 爆炸连锁 等调用）"""
+	if knockback_resistance >= 0.5:
+		return  # 高韧性敌人不受强力推开
+	velocity += force
+	state = EnemyState.HURT
+	retreat_timer = 0.15

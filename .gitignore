@@ -1,6 +1,7 @@
 # Godot
 .godot/
 *.import
+*.uid
 export/
 export_presets.cfg
 

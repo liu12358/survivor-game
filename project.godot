@@ -112,3 +112,9 @@ select_3={
 2d_physics/layer_7="boss_body"
 2d_physics/layer_8="boss_projectile"
 2d_physics/layer_9="boundary"
+
+[locale]
+
+locale="en"
+translations=PackedStringArray("res://localization/en.csv")
+

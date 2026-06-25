@@ -68,13 +68,13 @@
 | 对象池 | 🟡 | 投射物已接入对象池（acquire/release 复用验证）✅；宝石仍直接实例化 |
 | 角色系统 | ✅ | 法师/剑圣/弓手 + 选择界面 + 专属武器与被动 + 解锁（剑圣=杀BOSS / 弓手=累计1万杀）|
 | 成就 / 图鉴 | ✅ | 10 成就 + 超武合成图鉴 + **怪物图鉴**（击杀解锁，含属性/描述/击杀数）|
-| 装备栏 / 金手指 | ✅ | HUD 左下装备栏（武器/被动图标+Lv，超武★）；金手指（**F3 或屏幕🐞按钮**，手机可用）|
+| 装备栏 / 金手指 | ✅ | HUD 左下装备栏（武器/被动图标+Lv，超武★）；金手指（**F3 或屏幕🐞按钮**，含**全部 8 种武器一键刷出**）|
 | 皮肤系统 | ✅ | 5 款换色皮肤（金币购买），主菜单选择，受击闪烁保留皮肤色 |
 | 种子系统 | 🟡 | seeded RNG + 种子输入/显示 + 怪物波次/掉落可复刻 ✅；升级池/敌人随机待全量接入 |
 | 地图机制 / 障碍物 / 多地图 | ❌ | 单一空旷场地 + `_draw()` 背景 |
 | 新手引导 / 提示通知 / 性能面板 / 截图 | ❌ | — |
-| Web / Android 导出 | ✅ | Web(index.html) + Android(starfall.apk 28.5MB 已签名) **均导出成功**；模板/SDK/keystore 已装配 |
-| 触屏虚拟摇杆 | 🟡 | 左半屏摇杆 + 暂停按钮已实现（实机待测）|
+| Web / Android 导出 | ✅ | Web(index.html) + Android(starfall.apk 已签名) **均可直接导出**；模板/SDK/JDK 21/keystore 已装配 |
+| 触屏虚拟摇杆 | ✅ | 左半屏摇杆 + 暂停按钮，PC 键盘不受影响 |
 | 多语言 | ❌ | 当前硬编码中文 |
 
 **一句话现状**：完成度约 **87%**。**P0 + P1 全部完成 + P2 过半**：P0（8 Bug / 9 脱节）、P1（超武词条 / 6 武器 / 3 职业 / BOSS 强化 / 精英）、P2（掉落 Buff / 成就 / 种子）均 headless 验证通过。剩余 P2（地图机制 / 对象池）偏视觉与性能，需实机参与；P3 为音效 / 导出 / 触屏 / 图鉴 UI 等。
@@ -140,6 +140,7 @@ Main(Node2D, 主控/背景/震屏/BOSS计时)
 | B-12 | 🟡 中 | [`main_menu.gd`](scripts/ui/main_menu.gd) | 主菜单按钮区用 PRESET_CENTER+offset 不居中（内容增多后明显）| 改用 CenterContainer 包裹；顺带修难度标签不刷新 | ✅ |
 | B-13 | 🔴 高 | [`main.gd`](scripts/managers/main.gd) / [`pause_menu.gd`](scripts/ui/pause_menu.gd) | D-2 回归：main 设 ALWAYS 致子节点（玩家/敌人/子弹）继承 ALWAYS，暂停其实未冻结（B-2 未真正修好，旧测试没覆盖）| main 改回 PAUSABLE，ESC 切换移至 PauseMenu(ALWAYS)；测试验证 process_mode 链 | ✅ |
 | B-14 | 🟡 中 | [`hud.gd`](scripts/ui/hud.gd) | 重开/复活后 HUD 等级/血量不刷新（HUD._ready 早于 GameState 重置）| HUD 监听 `game_started`/`player_revived` → `_update_all` | ✅ |
+| **B-15** | 🔴 阻断 | `player.gd` / `base_enemy.gd` / `level_up_panel.gd` / `cheat_menu.gd` | GDScript strict mode 下 `var x := expr` 因表达式含 Variant 操作数无法推断类型 → 警告被当作错误 → 4 脚本编译失败 → 游戏 scene 加载异常（玩家 WASD 无响应）| 改为显式类型 `var x: Vector2/float = expr` | ✅ |
 
 ## 0.5 实施路线图
 
@@ -150,7 +151,8 @@ Main(Node2D, 主控/背景/震屏/BOSS计时)
 2. ✅ **D-1 单一数据源**：重构玩家数值读取，已修 B-3 / B-4（13 项单元测试 + 回归冒烟通过）。
 3. ✅ **D-2 统一暂停**：`get_tree().paused` + `process_mode`，修 B-2（8 项集成测试通过；ESC/点击交互建议实机复测）。
 4. ✅ **D-7 击杀 BOSS 胜利结算** + 修 B-7（关卡模式击杀 BOSS 即触发胜利结算）。
-5. 🟡 回归测试：headless 全链路（语法 / 冒烟 / 单元 / 集成）已过；ESC 暂停、选卡点击、结算按钮等**真实交互建议实机复测**。
+5. ✅ **修复 B-15**：GDScript strict mode 类型推断导致 4 脚本编译失败 → 玩家 WASD 无响应。已全部显式声明类型。
+6. 🟡 回归测试：headless 全链路（语法 / 冒烟 / 单元 / 集成）已过；ESC 暂停、选卡点击、结算按钮等**真实交互建议实机复测**。
 
 ### 🥈 P1 · 补全核心特色（对齐宏大愿景）
 6. ✅ **D-3/D-4/D-5/B-5/B-6/B-8**：统一超武（全武器 Lv8 形态）与词条体系（作用域分流 + 暴击/吸血合计）。12 项集成测试通过。
@@ -711,8 +713,9 @@ survivor-game/
 
 ## 8.3 当前里程碑
 
-- **现在**：完成度 ~65%，存在阻断 Bug B-1。
-- **下一步（P0）**：修 B-1 恢复可玩 → D-1 单一数据源 → D-2 暂停 → D-7 BOSS 胜利 → 回归测试。
+- **现在**：完成度 ~87%，P0 + P1 全部完成。阻断级 Bug 已全部修复（B-1/B-9/B-13/B-15）。
+- **最新修复**：B-15（GDScript strict mode 编译失败 → WASD 无响应）、金手指新增武器一键刷出（全部 8 种）。
+- **下一步**：P2（对象池全量接入、地图机制）、P3（音效、导出全平台验证）。
 - 详见 §0.5 路线图。
 
 ---

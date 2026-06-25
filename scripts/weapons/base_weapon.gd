@@ -132,6 +132,15 @@ func add_affix(affix: Dictionary) -> void:
 			"move_speed": GameState.affix_move_speed += v
 			"exp":        GameState.affix_exp_bonus += v
 			"armor":      GameState.affix_armor += v
+			"lifesteal":  GameState.affix_lifesteal += v
+			# 置换词条·全局
+			"inverse_blood_pact":
+				var p = affix.get("pos", {})
+				var n = affix.get("neg", {})
+				GameState.affix_lifesteal += p.get("value", 0.05)
+				GameState.max_hp *= (1.0 + n.get("value", -0.20))
+				if GameState.current_hp > GameState.max_hp:
+					GameState.current_hp = GameState.max_hp
 		GameState.recalc_stats()
 	else:
 		# 武器级词条（仅作用于本武器实例）
@@ -139,7 +148,16 @@ func add_affix(affix: Dictionary) -> void:
 			"speed":     attack_speed *= 1.0 + v
 			"crit":      crit_chance += v
 			"lifesteal": lifesteal_local += v
-			# "damage" 由 get_damage_with_bonus() 遍历 affixes 处理
+			"damage":    pass  # 由 get_damage_with_bonus() 遍历 affixes 处理
+			# 置换词条·武器级
+			"inverse_all_or_nothing":
+				var p = affix.get("pos", {})
+				var n = affix.get("neg", {})
+				# 正面：伤害由 get_damage_with_bonus 遍历处理
+				var dmg_dict := {"type": "damage", "value": p.get("value", 0.5)}
+				affixes.append(dmg_dict)
+				# 负面：攻速 -20%
+				attack_speed *= (1.0 + n.get("value", -0.20))
 
 
 func remove_affixes() -> void:

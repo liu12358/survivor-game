@@ -22,6 +22,12 @@ var invincible_timer: float = 0.0
 var is_dead: bool = false
 var _skin_color: Color = Color.WHITE
 
+# Shield Gate（护盾破裂保护）
+var _shield_gate_active: bool = false           # 本帧已触发 shield gate，防递归
+const SHIELD_GATE_DURATION: float = 0.15        # 破盾微无敌帧时长
+const SHIELD_GATE_PUSH_RADIUS: float = 120.0    # 推开波半径
+const SHIELD_GATE_PUSH_FORCE: float = 200.0     # 推开力度
+
 # 状态枚举
 enum PlayerState { NORMAL, HURT, LEVELING, DEAD, STUNNED }
 var state: PlayerState = PlayerState.NORMAL
@@ -67,30 +73,33 @@ func _setup_signals() -> void:
 	EventBus.screen_shake_requested.connect(_on_screen_shake)
 
 
-func _physics_process(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
 	if is_dead:
 		return
+	if state == PlayerState.DEAD or state == PlayerState.LEVELING:
+		return
 
-	match state:
-		PlayerState.NORMAL:
-			_handle_movement()
-			_update_timers(delta)
-			_apply_regen(delta)
-		PlayerState.HURT:
-			_update_timers(delta)
-			_apply_regen(delta)
-		PlayerState.LEVELING:
-			pass  # 暂停中，不处理
-		PlayerState.DEAD:
-			return
-		PlayerState.STUNNED:
-			_update_timers(delta)
-			_apply_regen(delta)
+	var spd = GameState.effective_move_speed()
+	var input_dir = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+
+	if input_dir.length() < 0.2:
+		var js = get_tree().get_first_node_in_group("joystick")
+		if js and js.has_method("get_direction"):
+			var jd = js.get_direction()
+			if jd.length() > 0.15:
+				input_dir = jd
+
+	if input_dir.length() > 0.2:
+		velocity = input_dir * spd
+	else:
+		velocity = velocity.move_toward(Vector2.ZERO, spd * 5.0)
 
 	move_and_slide()
 	EventBus.player_moved.emit(global_position)
-	_magnetize_nearby_gems(delta)
-	_spawn_trail(delta)
+	_magnetize_nearby_gems(_delta)
+	_spawn_trail(_delta)
+	_update_timers(_delta)
+	_apply_regen(_delta)
 
 
 func _handle_movement() -> void:
@@ -145,12 +154,25 @@ func take_damage(amount: float) -> void:
 	if is_dead or invincible_timer > 0.0 or GameState.invincible_buff or GameState.cheat_godmode:
 		return
 
+	# ─── Shield Gate: 扣盾前记录旧值 ───
+	var shield_before := shield_health
+
 	# 先扣护盾
 	var remaining = amount
 	if shield_health > 0:
 		var shield_dmg = min(remaining, shield_health)
 		shield_health -= shield_dmg
 		remaining -= shield_dmg
+
+	# ─── Shield Gate: 盾从 >0 到 <=0 → 触发微无敌 + 推开波 ───
+	var shield_just_broken := (shield_before > 0.0 and shield_health <= 0.0 and not _shield_gate_active)
+	if shield_just_broken:
+		_shield_gate_active = true
+		invincible_timer = SHIELD_GATE_DURATION
+		_shield_gate_push()
+		# 延迟一帧释放标志，避免同一帧多次触发
+		await get_tree().process_frame
+		_shield_gate_active = false
 
 	# 扣HP
 	if remaining > 0:
@@ -161,10 +183,14 @@ func take_damage(amount: float) -> void:
 		_die()
 		return
 
-	# 受伤状态
-	invincible_timer = INVINCIBLE_TIME
-	state = PlayerState.HURT
-	hurt_timer.start(INVINCIBLE_TIME)
+	# 受伤状态（shield gate 期间不计入完整无敌帧，避免覆盖）
+	if not shield_just_broken:
+		invincible_timer = INVINCIBLE_TIME
+		state = PlayerState.HURT
+		hurt_timer.start(INVINCIBLE_TIME)
+	else:
+		state = PlayerState.HURT
+		hurt_timer.start(SHIELD_GATE_DURATION)
 
 	# 视觉效果
 	_flash_red()
@@ -180,6 +206,45 @@ func _flash_red() -> void:
 	tween.tween_property(sprite, "modulate", _skin_color, 0.1)
 	tween.tween_property(sprite, "modulate", Color.RED, 0.1)
 	tween.tween_property(sprite, "modulate", _skin_color, 0.1)
+
+
+# ─── Shield Gate: 破盾推开波 ───
+
+func _shield_gate_push() -> void:
+	# 推开周围敌人
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if not is_instance_valid(enemy):
+			continue
+		var dist := global_position.distance_to(enemy.global_position)
+		if dist < SHIELD_GATE_PUSH_RADIUS and dist > 0.1:
+			var dir: Vector2 = (enemy.global_position - global_position).normalized()
+			# 力度随距离衰减
+			var force := SHIELD_GATE_PUSH_FORCE * (1.0 - dist / SHIELD_GATE_PUSH_RADIUS)
+			if enemy.has_method("apply_knockback"):
+				enemy.apply_knockback(dir * force)
+	# 视觉反馈：微型白色光圈
+	var ring := Sprite2D.new()
+	ring.texture = _make_push_ring_tex()
+	ring.global_position = global_position
+	ring.modulate = Color(1.0, 1.0, 1.0, 0.6)
+	get_tree().current_scene.add_child(ring)
+	var t := create_tween()
+	t.tween_property(ring, "scale", Vector2(2.0, 2.0), 0.15)
+	t.parallel().tween_property(ring, "modulate:a", 0.0, 0.15)
+	t.tween_callback(ring.queue_free)
+
+
+func _make_push_ring_tex() -> Texture2D:
+	var size := 64
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := size / 2
+	for x in range(size):
+		for y in range(size):
+			var d := Vector2(x - c, y - c).length()
+			if d <= c - 1 and d >= c - 4:
+				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, 0.8))
+	return ImageTexture.create_from_image(img)
 
 
 func _die() -> void:

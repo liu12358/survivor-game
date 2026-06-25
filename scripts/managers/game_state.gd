@@ -29,6 +29,8 @@ var active_passives: Dictionary = {}      # {passive_id: level}
 var weapon_affixes: Dictionary = {}       # {weapon_id: [affix_list]}
 var max_weapon_slots: int = 6
 var super_weapons: Array[String] = []     # 已合成的超武列表
+var mega_weapons: Array[String] = []      # 已合成的双重超武列表（Mega-Evolution）
+var mega_evolution_available: bool = false # 击杀 BOSS 掉落宝箱可触发融合
 
 # 道具状态
 var revive_count: int = 0
@@ -135,6 +137,8 @@ func reset_game_data() -> void:
 	active_passives.clear()
 	weapon_affixes.clear()
 	super_weapons.clear()
+	mega_weapons.clear()
+	mega_evolution_available = false
 	revive_count = 0
 	shield_hp = 0.0
 	shield_max = 0.0
@@ -235,3 +239,61 @@ func effective_range_mult() -> float:
 
 func get_damage_multiplier() -> float:
 	return (1.0 + damage_bonus) * damage_buff_mult
+
+
+# ─── 有效值计算（Meta 数值分层解离） ───
+# 公式: 最终值 = (局外基础 + Meta强化) * (1 + 局内被动加成% + 局内Buff加成%)
+# 所有局内逻辑和HUD刷新必须调用这些方法，禁止直接修改基础常量
+
+func get_effective_max_hp() -> float:
+	"""计算玩家最终最大 HP"""
+	var hp_lv := int(active_passives.get("max_hp", 0))
+	return BASE_MAX_HP + meta_hp_bonus * 5.0 + hp_lv * 25.0
+
+
+func get_effective_move_speed() -> float:
+	"""计算玩家最终移速（含减速/加速 buff）"""
+	var sp_lv := int(active_passives.get("speed", 0))
+	var base := base_move_speed * (1.0 + meta_speed_bonus * 0.02 + sp_lv * 0.15 + affix_move_speed)
+	return base * (1.0 - slow_amount) * speed_buff_mult
+
+
+func get_effective_damage_mult() -> float:
+	"""计算最终伤害倍率"""
+	return (1.0 + damage_bonus) * damage_buff_mult
+
+
+func get_effective_exp_rate() -> float:
+	"""计算经验获取倍率"""
+	return 1.0 + exp_bonus + exp_buff_mult - 1.0  # buff_mult 已是 1.0/2.0
+
+
+func get_effective_drop_rate() -> float:
+	"""计算掉率加成"""
+	return 1.0 + drop_rate
+
+
+func get_effective_pickup_range() -> float:
+	"""计算拾取范围"""
+	var mag_lv := int(active_passives.get("magnet", 0))
+	return base_pickup_range * (1.0 + meta_magnet_bonus * 0.05 + mag_lv * 0.30)
+
+
+func get_effective_armor() -> float:
+	"""计算最终护甲"""
+	return meta_armor_bonus * 1.0 + int(active_passives.get("armor", 0)) * 2.0 + affix_armor
+
+
+func get_effective_crit_chance() -> float:
+	"""计算最终暴击率"""
+	return min(0.60, int(active_passives.get("crit", 0)) * 0.05 + char_crit_bonus)
+
+
+func get_effective_lifesteal() -> float:
+	"""计算最终吸血比例"""
+	return int(active_passives.get("lifesteal", 0)) * 0.03 + affix_lifesteal
+
+
+func get_effective_range_mult() -> float:
+	"""计算攻击范围倍率"""
+	return effective_range_mult()  # 已有实现，保持兼容

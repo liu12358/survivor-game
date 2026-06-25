@@ -4,6 +4,17 @@ extends CanvasLayer
 var _panel: Panel
 var _god_label: Label
 
+const WEAPON_LIST = [
+	["magic_bolt", "🔮 魔法弹"],
+	["fire_ring", "🔥 烈焰环"],
+	["lightning_chain", "⚡ 闪电链"],
+	["ice_storm", "❄️ 冰晶风暴"],
+	["holy_spear", "🏹 圣光矛"],
+	["poison_cloud", "☠️ 毒雾"],
+	["sword_orbit", "⚔️ 环绕剑"],
+	["piercing_arrow", "🎯 穿透箭"],
+]
+
 
 func _ready() -> void:
 	layer = 30
@@ -23,18 +34,21 @@ func _build() -> void:
 	_panel.offset_left = -190
 	_panel.offset_top = 96
 	_panel.offset_right = -10
-	_panel.offset_bottom = 380
+	_panel.offset_bottom = 530  # 拉长以容纳武器按钮
 	_panel.visible = false
 	add_child(_panel)
 
+	var scroll = ScrollContainer.new()
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_panel.add_child(scroll)
+
 	var vb = VBoxContainer.new()
-	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vb.add_theme_constant_override("separation", 5)
 	vb.offset_left = 8
 	vb.offset_top = 8
-	vb.offset_right = -8
-	vb.offset_bottom = -8
-	_panel.add_child(vb)
+	vb.offset_right = 0
+	vb.offset_bottom = 0
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var t = Label.new()
 	t.text = "🐞 金手指 (F3 开关)"
@@ -54,6 +68,33 @@ func _build() -> void:
 	_add_btn(vb, "❤️ 满血", _cheat_heal)
 	_add_btn(vb, "💥 清屏杀怪", _cheat_kill)
 	_add_btn(vb, "🔓 解锁全角色", _cheat_unlock)
+
+	# ─── 刷武器区域 ───
+	var sep := HSeparator.new()
+	vb.add_child(sep)
+
+	var w_label := Label.new()
+	w_label.text = "🔫 刷武器"
+	w_label.add_theme_font_size_override("font_size", 13)
+	w_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(w_label)
+
+	# 4×2 网格
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 4)
+	vb.add_child(grid)
+
+	for w in WEAPON_LIST:
+		var wid := w[0] as String
+		var label := w[1] as String
+		var btn := Button.new()
+		btn.text = label
+		btn.add_theme_font_size_override("font_size", 11)
+		btn.custom_minimum_size = Vector2(0, 26)
+		btn.pressed.connect(_cheat_weapon.bind(wid))
+		grid.add_child(btn)
 
 	# 手机用：屏幕右下角开关按钮（替代 F3）
 	var toggle_btn = Button.new()
@@ -110,3 +151,23 @@ func _cheat_kill() -> void:
 func _cheat_unlock() -> void:
 	SaveSystem.unlock_character("argo")
 	SaveSystem.unlock_character("selene")
+
+
+func _cheat_weapon(wid: String) -> void:
+	"""给玩家添加指定武器"""
+	var player := get_tree().get_first_node_in_group("player")
+	if not player:
+		return
+	
+	# 检查是否已有该武器 → 已有则升级，否则新建
+	if GameState.active_weapons.has(wid):
+		GameState.active_weapons[wid] += 1
+		return
+	
+	var path := "res://scenes/weapons/%s.tscn" % wid
+	if not ResourceLoader.exists(path):
+		return
+	
+	var weapon: Node = load(path).instantiate()
+	player.add_child(weapon)
+	GameState.active_weapons[wid] = 1

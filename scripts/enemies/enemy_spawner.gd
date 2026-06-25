@@ -16,6 +16,10 @@ var _active_enemies: Array[Node2D] = []
 var _elite_spawn_timer: float = 0.0
 var _elite_interval: float = 60.0
 var _time_emit: float = 0.0           # game_time 信号降频累加器
+var _gem_merge_timer: float = 0.0
+const GEM_MERGE_INTERVAL: float = 1.5
+const GEM_MERGE_THRESHOLD: int = 100
+const GEM_MERGE_RANGE: float = 30.0
 
 # 敌人生成权重（随时间变化）
 var _spawn_weights: Dictionary = {
@@ -28,7 +32,8 @@ var _spawn_weights: Dictionary = {
 
 # 对象池
 var _enemy_pools: Dictionary = {}   # {enemy_type: ObjectPool}
-var _gem_pool: Node = null
+var _gem_pool: ObjectPool = null
+const POOLED_ENEMIES := ["slime_small", "bat"]  # 接入池的基础怪物
 
 
 func _ready() -> void:
@@ -44,8 +49,27 @@ func _on_enemy_killed(_type: String, pos: Vector2, exp_val: int, gold_val: int) 
 
 
 func _setup_pools() -> void:
-	# Phase 1: 简化版本（直接实例化），Phase 2 改为对象池
-	pass
+	# 经验宝石池（标准尺寸 200）
+	var gem_pool := ObjectPool.new()
+	gem_pool.scene = load("res://scenes/enemies/exp_gem.tscn")
+	gem_pool.initial_size = 150
+	gem_pool.max_size = 500
+	gem_pool.add_to_group("gem_pool")
+	add_child(gem_pool)
+	_gem_pool = gem_pool
+
+	# 基础怪物池（小史莱姆、蝙蝠）
+	for etype in POOLED_ENEMIES:
+		var path := "res://scenes/enemies/%s.tscn" % etype
+		if not ResourceLoader.exists(path):
+			continue
+		var pool := ObjectPool.new()
+		pool.scene = load(path)
+		pool.initial_size = 100
+		pool.max_size = 300
+		pool.add_to_group("pool_" + etype)
+		add_child(pool)
+		_enemy_pools[etype] = pool
 
 
 func _process(delta: float) -> void:
@@ -73,6 +97,12 @@ func _process(delta: float) -> void:
 		_spawn_elite()
 
 	_cleanup_dead_enemies()
+
+	# 宝石合并（同屏>100时启动）
+	_gem_merge_timer += delta
+	if _gem_merge_timer >= GEM_MERGE_INTERVAL:
+		_gem_merge_timer = 0.0
+		_merge_excess_gems()
 
 
 func _update_spawn_rate() -> void:
@@ -141,8 +171,13 @@ func _spawn_enemy() -> void:
 	if _game_time > 600:
 		_apply_late_game_affix(enemy)
 
-	add_child(enemy)
-	_active_enemies.append(enemy)
+	# 池化怪物已在池节点下，不需要再 add_child
+	var from_pool := (type in POOLED_ENEMIES and _enemy_pools.has(type))
+	if not from_pool:
+		add_child(enemy)
+	# 非池化怪物需要加入 _active_enemies（池化怪物已在 _create_enemy 中加入了）
+	if not from_pool:
+		_active_enemies.append(enemy)
 	EventBus.enemy_spawned.emit(enemy)
 
 
@@ -165,7 +200,23 @@ func _pick_enemy_type() -> String:
 
 
 func _create_enemy(type: String) -> Node2D:
-	# Phase 1: 从场景文件加载
+	# 池化怪物：从对象池获取
+	if type in POOLED_ENEMIES and _enemy_pools.has(type):
+		var pool = _enemy_pools[type]
+		if pool and pool.has_method("acquire"):
+			var obj = pool.acquire() as Node2D
+			if obj:
+				# 设置池引用 + 重置状态
+				if obj.has_method("set_pool_ref"):
+					obj.set_pool_ref(pool)
+				if obj.has_method("reset_for_pool"):
+					obj.reset_for_pool()
+				if not obj.is_in_group("enemy"):
+					obj.add_to_group("enemy")
+				_active_enemies.append(obj)
+				return obj
+
+	# 非池化怪物：从场景文件加载
 	var scene_path = "res://scenes/enemies/%s.tscn" % type
 	if ResourceLoader.exists(scene_path):
 		return load(scene_path).instantiate()
@@ -206,7 +257,7 @@ func _spawn_elite() -> void:
 	if _game_time > 600:
 		# 10分钟后精英也可能是幽灵
 		var pool = ["slime_big", "ghost"]
-		enemy = _create_enemy(pool[randi() % pool.size()])
+		enemy = _create_enemy(pool[GameState.rng.randi() % pool.size()])
 	elif not enemy:
 		enemy = _create_enemy("slime_big")
 	if not enemy:
@@ -246,50 +297,97 @@ func get_enemy_count() -> int:
 
 
 func spawn_exp_gem(position: Vector2, amount: int, gold: int = 0) -> void:
-	var gem_scene = load("res://scenes/enemies/exp_gem.tscn")
-	if not gem_scene:
-		return
-
 	# 宝石上限检查
 	var gem_count = get_tree().get_nodes_in_group("gem").size()
 	if gem_count > 200:
 		return
 
-	# 始终生成经验宝石（蓝色）
-	var gem = gem_scene.instantiate()
-	gem.exp_amount = amount
-	gem.pickup_type = "exp"
-	gem.global_position = position + Vector2(randf_range(-10, 10), randf_range(-10, 10))
-	add_child.call_deferred(gem)   # 物理回调期间延迟入树，避免 flushing queries 错误（B-10）
+	# 经验宝石
+	_spawn_gem_at(position, "exp", amount, gold, Vector2(randf_range(-10, 10), randf_range(-10, 10)))
 
 	# 概率掉落特殊宝石
 	var drop_bonus = 1.0 + GameState.drop_rate
 	var roll = GameState.rng.randf()
 	if roll < 0.05 * drop_bonus:  # 5% 治疗（红心）
-		var heal = gem_scene.instantiate()
-		heal.exp_amount = 0
-		heal.pickup_type = "heal"
-		heal.global_position = position + Vector2(randf_range(-12, 12), randf_range(-12, 12))
-		add_child.call_deferred(heal)
-	elif roll < 0.10 * drop_bonus:  # 5% 护盾（金盾）
-		var shield = gem_scene.instantiate()
-		shield.exp_amount = 0
-		shield.pickup_type = "shield"
-		shield.global_position = position + Vector2(randf_range(-12, 12), randf_range(-12, 12))
-		add_child.call_deferred(shield)
+		_spawn_gem_at(position, "heal", 0, 0, Vector2(randf_range(-12, 12), randf_range(-12, 12)))
+	elif roll < 0.10 * drop_bonus:  # 5% 护盾
+		_spawn_gem_at(position, "shield", 0, 0, Vector2(randf_range(-12, 12), randf_range(-12, 12)))
 	elif roll < (0.15 + 0.10 * GameState.drop_rate) * drop_bonus:  # 15%→25% 金币
-		var gold_gem = gem_scene.instantiate()
-		gold_gem.exp_amount = 0
-		gold_gem.gold_amount = max(1, gold + randi() % 4)
-		gold_gem.pickup_type = "gold"
-		gold_gem.global_position = position + Vector2(randf_range(-15, 15), randf_range(-15, 15))
-		add_child.call_deferred(gold_gem)
+		_spawn_gem_at(position, "gold", 0, max(1, gold + randi() % 4), Vector2(randf_range(-15, 15), randf_range(-15, 15)))
 
-	# 增益 Buff 掉落（独立低概率，P2-14）
+	# 增益 Buff 掉落
 	if GameState.rng.randf() < 0.025 * drop_bonus:
 		var buff_types = ["buff_damage", "buff_speed", "buff_exp", "invincible", "magnet", "clear_bomb"]
-		var bg = gem_scene.instantiate()
-		bg.exp_amount = 0
-		bg.pickup_type = buff_types[randi() % buff_types.size()]
-		bg.global_position = position + Vector2(randf_range(-15, 15), randf_range(-15, 15))
-		add_child.call_deferred(bg)
+		_spawn_gem_at(position, buff_types[randi() % buff_types.size()], 0, 0, Vector2(randf_range(-15, 15), randf_range(-15, 15)))
+
+
+func _spawn_gem_at(pos: Vector2, ptype: String, exp: int, gld: int, offset: Vector2) -> void:
+	var gem: ExpGem = _acquire_gem()
+	if not gem:
+		return
+	gem.exp_amount = exp
+	gem.gold_amount = gld
+	gem.pickup_type = ptype
+	gem.global_position = pos + offset
+	# 池化宝石已在池节点下，不需要再 add_child；非池化需要
+	if not gem._pool_ref:
+		add_child.call_deferred(gem)
+	gem.add_to_group("gem")
+
+
+func _acquire_gem() -> ExpGem:
+	if _gem_pool and _gem_pool.has_method("acquire"):
+		var g = _gem_pool.acquire()
+		if g and g is ExpGem:
+			if g.has_method("reset_for_pool"):
+				g.reset_for_pool()
+			if g.has_method("set_pool_ref"):
+				g.set_pool_ref(_gem_pool)
+			return g
+	var scene = load("res://scenes/enemies/exp_gem.tscn")
+	if scene:
+		return scene.instantiate()
+	return null
+
+
+# ─── 宝石多级合并 ───
+
+func _merge_excess_gems() -> void:
+	"""同屏宝石>阈值时，自动合并低阶宝石"""
+	var all_gems = get_tree().get_nodes_in_group("gem")
+	if all_gems.size() < GEM_MERGE_THRESHOLD:
+		return
+
+	# 只合并 exp 类型宝石，按距离排序（远的优先合并）
+	var exp_gems: Array[Node] = []
+	for g in all_gems:
+		if is_instance_valid(g) and g.pickup_type == "exp":
+			if "_mergeable" in g and g._mergeable:
+				exp_gems.append(g)
+
+	if exp_gems.size() < 2:
+		return
+
+	# 取玩家位置作为参考点
+	var center = _get_camera_position()
+	exp_gems.sort_custom(func(a, b): return a.global_position.distance_squared_to(center) > b.global_position.distance_squared_to(center))
+
+	# 远距离宝石两两合并
+	var merged_count = 0
+	var target_merge = max(0, exp_gems.size() - GEM_MERGE_THRESHOLD + 20)  # 合并到阈值以下
+
+	for i in range(exp_gems.size() - 1):
+		if merged_count >= target_merge:
+			break
+		var a = exp_gems[i]
+		if not is_instance_valid(a) or not "_mergeable" in a or not a._mergeable:
+			continue
+		# 找最近的同类型宝石
+		for j in range(i + 1, exp_gems.size()):
+			var b = exp_gems[j]
+			if not is_instance_valid(b) or not "_mergeable" in b or not b._mergeable:
+				continue
+			if a.global_position.distance_squared_to(b.global_position) < GEM_MERGE_RANGE * GEM_MERGE_RANGE:
+				a.merge_into(b)
+				merged_count += 1
+				break  # a 已合并一次，跳过

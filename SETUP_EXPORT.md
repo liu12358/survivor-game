@@ -1,24 +1,23 @@
 # 🚀 星屑割草 — 导出指南（Web / Android）
 
-> **✅ 本机已装好导出模板 + Android SDK 工具 + debug keystore，Web 和 Android 均已成功导出！**
-> 产物：`export/web/index.html`（Web，39.5MB wasm）、`export/android/starfall.apk`（Android，28.5MB 已签名）。
+> **✅ 本机已装好导出模板 + Android SDK + debug keystore，Web 和 Android 均可直接导出！**
+> 产物：`export/web/index.html`（Web）、`export/android/starfall.apk`（Android 已签名）。
 > 重新导出命令见 §2 / §3。以下为完整环境说明（换机器时参考）。
->
-> 已安装：导出模板 → `%APPDATA%\Godot\export_templates\4.7.stable\`；Android SDK 工具 → `%USERPROFILE%\android-sdk`（platform-tools + build-tools 34.0.0）；debug keystore → `%USERPROFILE%\.android\debug.keystore`。
-> editor settings 与 `project.godot`（ETC2/ASTC 压缩）也已配好。
 
 ---
 
 ## 0. 当前状态一览
 
-| 项 | 状态 | 你需要做的 |
-|----|------|-----------|
-| `export_presets.cfg`（Web + Android 预设）| ✅ 已配好 | — |
-| `export/web`、`export/android` 目录 | ✅ 已建 | — |
-| 导出模板（4.7.stable）| ❌ 未装 | 见 §1（编辑器一键下载，~700MB）|
-| Web 导出 | ⏳ 待模板 | 装模板后一条命令（§2）|
-| Android SDK / JDK 17 | ❌ 未装 | 见 §3 |
-| 触屏虚拟摇杆 | ❌ 未做 | **Android 实际可玩的前置**，见 §4 |
+| 项 | 状态 | 说明 |
+|----|------|------|
+| `export_presets.cfg`（Web + Android 预设）| ✅ | 已配好，arm64-v8a |
+| `export/web`、`export/android` 目录 | ✅ | 已建 |
+| 导出模板（4.7.stable）| ✅ | 已安装（web / android / windows / linux / macos 全模板）|
+| Android SDK | ✅ | `%LOCALAPPDATA%\Android\Sdk`（build-tools 36.1，platform android-36）|
+| JDK 21 | ✅ | `C:\Program Files\Java\jdk-21.0.10`（Godot 4.7 需要 ≥JDK 17）|
+| Debug Keystore | ✅ | `%APPDATA%\Godot\keystores\debug.keystore` |
+| Web 导出 | ✅ | 可执行 |
+| Android 导出 | ✅ | 可执行（触屏虚拟摇杆已实现 ✅）|
 
 ---
 
@@ -42,32 +41,26 @@
 
 ## 2. Web 导出（HTML5）
 
-模板装好后，命令行（项目根目录）：
-
 ```powershell
 .\Godot.exe --headless --export-release "Web" export/web/index.html
 ```
 
 - **产物**：`export/web/` 下的 `index.html` + `.wasm` / `.js` / `.pck` 等。
-- **本地测试**（不能直接双击 index.html，必须走 HTTP 服务）：
+- **本地测试**（不能直接双击，必须 HTTP 服务）：
   ```powershell
   python -m http.server 8000 --directory export/web
-  # 浏览器打开 http://localhost:8000
   ```
 - **发布到 itch.io**：把 `export/web` 整个目录打包成 zip 上传，勾选 "This file will be played in the browser"。
-- 注：当前预设用 **nothreads**（不依赖 SharedArrayBuffer），省去 COOP/COEP 头配置，itch.io 直接可用。若要多线程版，把预设 `thread_support` 改 true 并配置跨域隔离头。
+- 注：当前预设用 **nothreads**（不依赖 SharedArrayBuffer），省去 COOP/COEP 头配置。
 
 ---
 
 ## 3. Android 导出（APK）
 
-**前置依赖**：
-1. **JDK 17**（当前机器是 JDK 25，Godot 4.7 的 Android 构建需要 **17**）。安装 Temurin JDK 17。
-2. **Android SDK**（装 Android Studio 最省事；或单独装 cmdline-tools）。需含 platform-tools、build-tools、platform `android-34`。
-3. Godot 编辑器 → **Editor → Editor Settings → Export → Android**：
-   - **Java SDK Path** → 指向 JDK 17 目录
-   - **Android SDK Path** → 指向 SDK 目录
-   - 生成 **Debug Keystore**（Editor Settings 里有按钮，或 Godot 首次会提示自动创建）
+**前置依赖**（本机已配好）：
+- JDK ≥ 17 → `C:\Program Files\Java\jdk-21.0.10`
+- Android SDK → `%LOCALAPPDATA%\Android\Sdk`
+- Debug Keystore → `%APPDATA%\Godot\keystores\debug.keystore`
 
 **导出命令**：
 ```powershell
@@ -80,17 +73,15 @@
 
 ---
 
-## 4. ⚠️ Android 实际可玩的前置：触屏虚拟摇杆
+## 4. 触屏虚拟摇杆 ✅
 
-当前角色移动靠 **WASD / 方向键**。`project.godot` 已开 `emulate_mouse_from_touch`，但**移动仍需键盘** → **Android 上装好后角色无法移动**（只能看 UI）。
-
-GDD §16.3 的**触屏虚拟摇杆**（左半屏摇杆 + 暂停按钮）尚未实现。**Android 要真正能玩，必须先做这个**——需要时找我，我来实现并接入现有输入系统（`move_*` 动作）。
+虚拟摇杆已实现：左半屏触控摇杆 + 右上角暂停按钮。`scripts/ui/virtual_joystick.gd` 自动添加（Main._setup_joystick），PC 键盘不受影响。Android 可直接游玩。
 
 ---
 
 ## 5. 常见问题
 
 - **导出报"未找到导出模板"**：§1 没装或版本不匹配（必须 4.7.stable）。
-- **Android 报 JDK 版本错误**：用 JDK 17，不是 25。
-- **Android 报找不到 SDK**：Editor Settings 里的 Android SDK Path 没配。
+- **Android 报 JDK 版本错误**：Godot 编辑器设置 → Export → Android → Java SDK Path，指向 JDK ≥ 17。
+- **Android 报找不到 SDK**：同上，Android SDK Path 指向 SDK 目录。
 - **Web 黑屏/打不开**：没走 HTTP 服务，直接开 index.html 会被浏览器 CORS 拦截。

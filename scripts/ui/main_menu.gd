@@ -1,4 +1,4 @@
-# MainMenu - 主菜单（局前设置可折叠）
+# MainMenu - 主菜单
 extends Control
 
 
@@ -13,7 +13,7 @@ func _create_ui() -> void:
 	add_child(bg)
 
 	var title = Label.new()
-	title.text = "🌟 星屑割草"
+	title.text = "星屑割草"
 	title.add_theme_font_size_override("font_size", 44)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -21,7 +21,7 @@ func _create_ui() -> void:
 	add_child(title)
 
 	var subtitle = Label.new()
-	subtitle.text = "Starfall Survivor"
+	subtitle.text = "2D 俯视角割草生存 Roguelike"
 	subtitle.add_theme_font_size_override("font_size", 16)
 	subtitle.modulate = Color(0.5, 0.6, 0.8)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -40,16 +40,14 @@ func _create_ui() -> void:
 	vbox.add_theme_constant_override("separation", 8)
 	center.add_child(vbox)
 
-	# 主操作：开始按钮
-	var level_btn = _make_button("🏰 关卡模式 — 存活15分钟", Color(0.2, 0.5, 0.8))
+	var level_btn = _make_button("🏰 关卡模式 — 存活 15 分钟", Color(0.2, 0.5, 0.8))
 	level_btn.pressed.connect(func(): _on_start("level"))
 	vbox.add_child(level_btn)
 
-	var inf_btn = _make_button("♾️ 无尽模式 — 挑战极限", Color(0.7, 0.3, 0.6))
+	var inf_btn = _make_button("♾️ 无尽模式 — 无限挑战", Color(0.7, 0.3, 0.6))
 	inf_btn.pressed.connect(func(): _on_start("infinite"))
 	vbox.add_child(inf_btn)
 
-	# 局前设置（折叠）
 	var settings_toggle = _make_button("⚙️ 局前设置 ▼", Color(0.3, 0.4, 0.5))
 	vbox.add_child(settings_toggle)
 	var settings_box = VBoxContainer.new()
@@ -75,7 +73,7 @@ func _create_ui() -> void:
 	shop_btn.pressed.connect(_on_shop)
 	vbox.add_child(shop_btn)
 
-	var codex_btn = _make_button("📖 图鉴 · 超武/怪物", Color(0.3, 0.5, 0.5))
+	var codex_btn = _make_button("📖 图鉴 · 武器/怪物", Color(0.3, 0.5, 0.5))
 	codex_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/ui/codex.tscn"))
 	vbox.add_child(codex_btn)
 
@@ -89,7 +87,7 @@ func _create_ui() -> void:
 
 	var stats_label = Label.new()
 	var s = SaveSystem.data
-	stats_label.text = "累计金币: %d  |  最高存活: %d秒  |  总局数: %d" % [s["total_gold"], int(s["highest_survival"]), s["total_games"]]
+	stats_label.text = "总金币: %d  |  最长存活: %d秒  |  总局数: %d" % [s["total_gold"], int(s["highest_survival"]), s["total_games"]]
 	stats_label.add_theme_font_size_override("font_size", 13)
 	stats_label.modulate = Color(0.5, 0.6, 0.7)
 	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -109,9 +107,16 @@ func _build_difficulty(box: VBoxContainer) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
-	for d in [{"id": "easy", "name": "🌱简单"}, {"id": "normal", "name": "⚔️普通"}, {"id": "hard", "name": "💀困难"}, {"id": "nightmare", "name": "🔥噩梦"}, {"id": "starfall", "name": "⭐星陨"}]:
+	var diff_list = [
+		{"id": "easy", "text": "🌱 简单"},
+		{"id": "normal", "text": "⚔️ 普通"},
+		{"id": "hard", "text": "💀 困难"},
+		{"id": "nightmare", "text": "🔥 噩梦"},
+		{"id": "starfall", "text": "⭐ 星落"},
+	]
+	for d in diff_list:
 		var btn = Button.new()
-		btn.text = d["name"]
+		btn.text = d["text"]
 		btn.custom_minimum_size = Vector2(70, 28)
 		btn.add_theme_font_size_override("font_size", 12)
 		btn.pressed.connect(func(id=d["id"]):
@@ -133,10 +138,15 @@ func _build_character(box: VBoxContainer) -> void:
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
 	var unlocked_chars = SaveSystem.data.get("unlocked_characters", ["mage"])
-	for c in [{"id": "mage", "name": "🧙法师"}, {"id": "argo", "name": "⚔️剑圣"}, {"id": "selene", "name": "🏹弓手"}]:
+	var char_list = [
+		{"id": "mage", "text": "🧙 法师"},
+		{"id": "argo", "text": "⚔️ 剑圣"},
+		{"id": "selene", "text": "🏹 弓手"},
+	]
+	for c in char_list:
 		var cbtn = Button.new()
 		var is_unlocked = c["id"] in unlocked_chars
-		cbtn.text = c["name"] if is_unlocked else c["name"] + "🔒"
+		cbtn.text = c["text"] if is_unlocked else c["text"] + "🔒"
 		cbtn.disabled = not is_unlocked
 		cbtn.custom_minimum_size = Vector2(82, 28)
 		cbtn.add_theme_font_size_override("font_size", 12)
@@ -195,7 +205,7 @@ func _build_seed(box: VBoxContainer) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_child(row)
 	var seed_input = LineEdit.new()
-	seed_input.placeholder_text = "🌱 种子(留空随机)"
+	seed_input.placeholder_text = "🌱 种子（留空随机）"
 	seed_input.custom_minimum_size = Vector2(200, 28)
 	seed_input.text = GameState.game_seed
 	seed_input.text_changed.connect(func(t): GameState.game_seed = t)
@@ -243,7 +253,7 @@ func _get_diff_name() -> String:
 		"easy": return "🌱 简单"
 		"hard": return "💀 困难"
 		"nightmare": return "🔥 噩梦"
-		"starfall": return "⭐ 星陨"
+		"starfall": return "⭐ 星落"
 		_: return "⚔️ 普通"
 
 

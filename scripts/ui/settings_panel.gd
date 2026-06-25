@@ -1,10 +1,14 @@
 # SettingsPanel - 设置菜单
-# 音量/震动/粒子/伤害数字 开关 + 全屏
 extends Control
 
 
 func _ready() -> void:
 	_create_ui()
+
+
+func _s(key: String, fallback = null):
+	var v = SaveSystem.get_setting(key)
+	return v if v != null else fallback
 
 
 func _create_ui() -> void:
@@ -29,22 +33,22 @@ func _create_ui() -> void:
 
 	# 主音量滑块
 	var vol = _add_slider_row(vbox, "🔊 主音量", "master_volume", 0.0, 1.0)
-	vol.value = SaveSystem.get_setting("master_volume")
+	vol.value = _s("master_volume", 0.8)
 	vol.value_changed.connect(func(v):
 		SaveSystem.set_setting("master_volume", v)
 		AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), linear_to_db(v) if v > 0 else -80)
 	)
 
-	# 屏幕震动开关
+	# 屏幕震动
 	_add_toggle_row(vbox, "📳 屏幕震动", "screen_shake")
 
-	# 粒子特效开关
+	# 粒子特效
 	_add_toggle_row(vbox, "✨ 粒子特效", "particles")
 
-	# 伤害数字开关
+	# 伤害数字
 	_add_toggle_row(vbox, "🔢 伤害数字", "damage_numbers")
 
-	# 全屏开关
+	# 全屏
 	var fs = _add_toggle_row(vbox, "🖥️ 全屏", "fullscreen")
 	fs.toggled.connect(func(b):
 		SaveSystem.set_setting("fullscreen", b)
@@ -58,7 +62,6 @@ func _create_ui() -> void:
 	spacer.custom_minimum_size = Vector2(0, 10)
 	vbox.add_child(spacer)
 
-	# 返回按钮
 	var back_btn = Button.new()
 	back_btn.text = "← 返回主菜单"
 	back_btn.custom_minimum_size = Vector2(200, 44)
@@ -67,8 +70,9 @@ func _create_ui() -> void:
 	back_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn"))
 
 	# 初始化音量
+	var init_vol = _s("master_volume", 0.8)
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"),
-		linear_to_db(SaveSystem.get_setting("master_volume")) if SaveSystem.get_setting("master_volume") > 0 else -80)
+		linear_to_db(init_vol) if init_vol > 0 else -80)
 
 
 func _add_slider_row(parent: Control, label_text: String, key: String, min_v: float, max_v: float) -> HSlider:
@@ -95,7 +99,7 @@ func _add_slider_row(parent: Control, label_text: String, key: String, min_v: fl
 	val_lbl.add_theme_font_size_override("font_size", 14)
 	row.add_child(val_lbl)
 	slider.value_changed.connect(func(v): val_lbl.text = "%d%%" % int(v * 100))
-	slider.value = SaveSystem.get_setting(key)
+	slider.value = _s(key, 0.8 if key == "master_volume" else 1.0)
 	val_lbl.text = "%d%%" % int(slider.value * 100)
 
 	return slider
@@ -113,7 +117,7 @@ func _add_toggle_row(parent: Control, label_text: String, key: String) -> CheckB
 	row.add_child(lbl)
 
 	var toggle = CheckButton.new()
-	toggle.button_pressed = SaveSystem.get_setting(key)
+	toggle.button_pressed = bool(_s(key, true))
 	toggle.toggled.connect(func(b): SaveSystem.set_setting(key, b))
 	row.add_child(toggle)
 
