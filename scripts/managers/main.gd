@@ -828,7 +828,7 @@ func _on_screen_shake(amplitude: float, duration: float) -> void:
 	if not SaveSystem.get_setting("screen_shake"):
 		return
 	# 比较当前实际振幅（考虑衰减），而非原始振幅
-	var current_amplitude := _shake_amplitude * (_shake_duration / max(_shake_duration + 0.01, 0.01)) if _shake_duration > 0 else 0.0
+	var current_amplitude: float = _shake_amplitude * (_shake_duration / max(_shake_duration + 0.01, 0.01)) if _shake_duration > 0 else 0.0
 	if amplitude <= current_amplitude:
 		return  # 不强于当前实际震动则忽略
 	_shake_amplitude = amplitude

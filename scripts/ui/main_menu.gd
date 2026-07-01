@@ -1,6 +1,8 @@
 # MainMenu - 主菜单
 extends Control
 
+var gt: Tween = null  # 标题光效循环 tween
+
 
 func _ready() -> void:
 	_create_ui()
@@ -47,7 +49,7 @@ func _create_ui() -> void:
 	title_glow.modulate = Color(0.3, 0.5, 0.9, 0.3)
 	title_glow.z_index = -1
 	add_child(title_glow)
-	var gt = create_tween().set_loops()
+	gt = create_tween().set_loops()
 	gt.tween_property(title_glow, "modulate:a", 0.15, 1.5)
 	gt.tween_property(title_glow, "modulate:a", 0.35, 1.5)
 

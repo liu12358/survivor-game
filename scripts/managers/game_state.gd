@@ -133,16 +133,16 @@ const DIFFICULTY_CONFIG = {
 
 # ─── 组缓存（P-1 优化：减少 get_nodes_in_group 重复遍历） ───
 var _group_cache_valid: bool = false
-var _cached_enemies: Array[Node2D] = []
-var _cached_players: Array[Node2D] = []
-var _cached_gems: Array[Node2D] = []
+var _cached_enemies: Array[Node] = []
+var _cached_players: Array[Node] = []
+var _cached_gems: Array[Node] = []
 
 
 func invalidate_group_cache() -> void:
 	_group_cache_valid = false
 
 
-func get_cached_group(group_name: String) -> Array[Node2D]:
+func get_cached_group(group_name: String) -> Array[Node]:
 	if not _group_cache_valid:
 		_refresh_group_cache()
 	match group_name:
