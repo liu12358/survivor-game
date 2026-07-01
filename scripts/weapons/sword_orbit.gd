@@ -66,7 +66,7 @@ func _damage_tick(delta: float) -> void:
 	var cm := get_total_crit_mult()
 	for blade in _blades:
 		var bpos := blade.global_position
-		for enemy in get_tree().get_nodes_in_group("enemy"):
+		for enemy in GameState.get_cached_group("enemy"):
 			if not is_instance_valid(enemy):
 				continue
 			var id := enemy.get_instance_id()

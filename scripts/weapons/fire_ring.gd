@@ -51,7 +51,7 @@ func _make_ring_texture(size: int) -> Texture2D:
 
 
 func _attack() -> void:
-	var enemies = get_tree().get_nodes_in_group("enemy")
+	var enemies = GameState.get_cached_group("enemy")
 	var cc := get_total_crit_chance()
 	var cm := get_total_crit_mult()
 	var r := range * GameState.effective_range_mult()

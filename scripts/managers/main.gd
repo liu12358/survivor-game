@@ -54,9 +54,9 @@ func _ready() -> void:
 	_setup_cheat()
 	_setup_glow()
 	_setup_boundary()
-	# 强制重新生成背景缓存
-	_bg_texture = null
+	# P-2：一次性生成背景纹理缓存
 	_bg_regeneration_needed = true
+	_generate_bg_texture()
 	_start_game()
 	# 强制重绘
 	queue_redraw()
@@ -128,15 +128,11 @@ func _notification(what: int) -> void:
 
 
 func _draw() -> void:
-	if _bg_regeneration_needed:
-		_bg_texture = null
-		_bg_regeneration_needed = false
-
+	# P-2：使用预生成的背景纹理（每帧只需 1 次 draw_texture）
 	if _bg_texture:
-		draw_texture(_bg_texture, -_bg_texture.get_size() / 2.0)
+		draw_texture(_bg_texture, Vector2.ZERO - _bg_texture.get_size() / 2.0)
 	else:
-		# 直接绘制背景（不用缓存）
-		_draw_dungeon_background()
+		_draw_dungeon_background()  # 兜底
 
 	# 边界光环
 	draw_arc(Vector2.ZERO, MAP_RADIUS - 2, 0, TAU, 96, Color(0.6, 0.5, 0.3, 0.9), 4.0)
@@ -185,6 +181,69 @@ func _draw_dungeon_background() -> void:
 	draw_circle(Vector2.ZERO, 50, Color(0.18, 0.16, 0.22, 0.3))
 
 
+# P-2：一次性生成背景纹理并缓存，避免每帧 ~106 次 draw_call
+func _generate_bg_texture() -> void:
+	var size := int(MAP_RADIUS * 2.0 + 4.0)
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var center := Vector2(size / 2.0, size / 2.0)
+
+	# 1. 底色圆形
+	_draw_circle_to_img(img, center, MAP_RADIUS, Color(0.12, 0.10, 0.14))
+
+	# 2. 石砖网格线
+	var grid_color = Color(0.18, 0.16, 0.22, 0.5)
+	var tile_size = 48.0
+	var half_tiles := int(MAP_RADIUS / tile_size)
+	for i in range(-half_tiles, half_tiles + 1):
+		var offset = float(i) * tile_size
+		var x = center.x + offset
+		var half_h = sqrt(max(0.0, MAP_RADIUS * MAP_RADIUS - offset * offset))
+		if half_h > 0:
+			_draw_line_to_img(img, Vector2(x, center.y - half_h), Vector2(x, center.y + half_h), grid_color)
+		var y = center.y + offset
+		var half_w = sqrt(max(0.0, MAP_RADIUS * MAP_RADIUS - offset * offset))
+		if half_w > 0:
+			_draw_line_to_img(img, Vector2(center.x - half_w, y), Vector2(center.x + half_w, y), grid_color)
+
+	# 3. 砖块装饰
+	var rng = RandomNumberGenerator.new()
+	rng.seed = 42
+	for k in range(40):
+		var angle = rng.randf() * TAU
+		var dist = rng.randf_range(50, MAP_RADIUS * 0.8)
+		var pos = center + Vector2(cos(angle), sin(angle)) * dist
+		var brick_size = rng.randf_range(20, 40)
+		var shade = rng.randf_range(0.14, 0.20)
+		_draw_rect_to_img(img, Rect2(pos.x - brick_size / 2, pos.y - brick_size / 2, brick_size, brick_size),
+			Color(shade, shade * 0.9, shade * 1.1))
+
+	# 4. 火把光点
+	for j in range(15):
+		var angle = rng.randf() * TAU
+		var dist = rng.randf_range(100, MAP_RADIUS * 0.7)
+		var pos = center + Vector2(cos(angle), sin(angle)) * dist
+		_draw_circle_to_img(img, pos, 12, Color(0.5, 0.3, 0.1, 0.15))
+		_draw_circle_to_img(img, pos, 4, Color(0.9, 0.6, 0.2, 0.6))
+
+	# 5. 中心出生点
+	_draw_circle_to_img(img, center, 50, Color(0.18, 0.16, 0.22, 0.3))
+
+	_bg_texture = ImageTexture.create_from_image(img)
+
+
+func _draw_rect_to_img(img: Image, rect: Rect2, color: Color) -> void:
+	var x0 := int(rect.position.x)
+	var y0 := int(rect.position.y)
+	var x1 := int(rect.end.x)
+	var y1 := int(rect.end.y)
+	var w := img.get_width()
+	var h := img.get_height()
+	for x in range(maxi(0, x0), mini(w, x1)):
+		for y in range(maxi(0, y0), mini(h, y1)):
+			img.set_pixel(x, y, color)
+
+
 func _draw_circle_to_img(img: Image, pos: Vector2, radius: float, color: Color) -> void:
 	var r = int(ceil(radius))
 	var cx = int(pos.x)
@@ -220,6 +279,9 @@ func _process(delta: float) -> void:
 
 	if GameState.is_paused:
 		return
+
+	# P-1：每帧失效组缓存，确保后续 get_cached_group 获取最新数据
+	GameState.invalidate_group_cache()
 
 	_total_game_time += delta
 

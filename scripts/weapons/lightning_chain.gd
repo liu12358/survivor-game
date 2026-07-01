@@ -61,7 +61,7 @@ func _attack() -> void:
 
 
 func _find_nearest_enemy(exclude: Array[Node2D], from: Vector2) -> Node2D:
-	var enemies = get_tree().get_nodes_in_group("enemy")
+	var enemies = GameState.get_cached_group("enemy")
 	var best: Node2D = null
 	var best_dist = bounce_range
 	for enemy in enemies:

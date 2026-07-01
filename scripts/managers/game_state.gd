@@ -131,6 +131,34 @@ const DIFFICULTY_CONFIG = {
 	"starfall":  {"hp_mult": 4.0, "speed_mult": 2.0, "count_mult": 2.0, "exp_mult": 0.6, "drop_mult": 2.0},
 }
 
+# ─── 组缓存（P-1 优化：减少 get_nodes_in_group 重复遍历） ───
+var _group_cache_valid: bool = false
+var _cached_enemies: Array[Node2D] = []
+var _cached_players: Array[Node2D] = []
+var _cached_gems: Array[Node2D] = []
+
+
+func invalidate_group_cache() -> void:
+	_group_cache_valid = false
+
+
+func get_cached_group(group_name: String) -> Array[Node2D]:
+	if not _group_cache_valid:
+		_refresh_group_cache()
+	match group_name:
+		"enemy":  return _cached_enemies
+		"player": return _cached_players
+		"gem":    return _cached_gems
+		_:        return get_tree().get_nodes_in_group(group_name)
+
+
+func _refresh_group_cache() -> void:
+	_cached_enemies = get_tree().get_nodes_in_group("enemy")
+	_cached_players = get_tree().get_nodes_in_group("player")
+	_cached_gems = get_tree().get_nodes_in_group("gem")
+	_group_cache_valid = true
+
+
 # ─── 方法 ───
 
 func reset_game_data() -> void:

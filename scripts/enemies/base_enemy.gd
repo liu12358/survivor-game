@@ -289,7 +289,7 @@ func _check_contact_damage(delta: float) -> void:
 
 
 func _get_player() -> Node2D:
-	var players = get_tree().get_nodes_in_group("player")
+	var players = GameState.get_cached_group("player")
 	if players.size() > 0:
 		return players[0]
 	return null

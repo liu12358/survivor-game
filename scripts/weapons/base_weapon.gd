@@ -72,7 +72,7 @@ func _initialize() -> void:
 
 
 func _find_target() -> void:
-	var enemies = get_tree().get_nodes_in_group("enemy")
+	var enemies = GameState.get_cached_group("enemy")
 	var search_range = maxf(target_range, 800.0) * GameState.effective_range_mult()
 	target = null
 	var nearest_dist = search_range

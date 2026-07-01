@@ -72,7 +72,7 @@ func _damage_tick(delta: float) -> void:
 		if _hit_cd[k] <= 0.0:
 			_hit_cd.erase(k)
 
-	var enemies := get_tree().get_nodes_in_group("enemy")
+	var enemies := GameState.get_cached_group("enemy")
 	var cc := get_total_crit_chance()
 	var cm := get_total_crit_mult()
 	for crystal in _crystals:
