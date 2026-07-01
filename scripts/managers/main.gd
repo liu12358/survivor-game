@@ -189,7 +189,7 @@ func _generate_bg_texture() -> void:
 	var center := Vector2(size / 2.0, size / 2.0)
 
 	# 1. 底色圆形
-	_draw_circle_to_img(img, center, MAP_RADIUS, Color(0.12, 0.10, 0.14))
+	_fill_circle_on_img(img, center, MAP_RADIUS, Color(0.12, 0.10, 0.14))
 
 	# 2. 石砖网格线
 	var grid_color = Color(0.18, 0.16, 0.22, 0.5)
@@ -215,48 +215,40 @@ func _generate_bg_texture() -> void:
 		var pos = center + Vector2(cos(angle), sin(angle)) * dist
 		var brick_size = rng.randf_range(20, 40)
 		var shade = rng.randf_range(0.14, 0.20)
-		_draw_rect_to_img(img, Rect2(pos.x - brick_size / 2, pos.y - brick_size / 2, brick_size, brick_size),
-			Color(shade, shade * 0.9, shade * 1.1))
+		var rect := Rect2(pos.x - brick_size / 2, pos.y - brick_size / 2, brick_size, brick_size)
+		img.fill_rect(rect, Color(shade, shade * 0.9, shade * 1.1))
 
 	# 4. 火把光点
 	for j in range(15):
 		var angle = rng.randf() * TAU
 		var dist = rng.randf_range(100, MAP_RADIUS * 0.7)
 		var pos = center + Vector2(cos(angle), sin(angle)) * dist
-		_draw_circle_to_img(img, pos, 12, Color(0.5, 0.3, 0.1, 0.15))
-		_draw_circle_to_img(img, pos, 4, Color(0.9, 0.6, 0.2, 0.6))
+		_fill_circle_on_img(img, pos, 12, Color(0.5, 0.3, 0.1, 0.15))
+		_fill_circle_on_img(img, pos, 4, Color(0.9, 0.6, 0.2, 0.6))
 
 	# 5. 中心出生点
-	_draw_circle_to_img(img, center, 50, Color(0.18, 0.16, 0.22, 0.3))
+	_fill_circle_on_img(img, center, 50, Color(0.18, 0.16, 0.22, 0.3))
 
 	_bg_texture = ImageTexture.create_from_image(img)
 
 
-func _draw_rect_to_img(img: Image, rect: Rect2, color: Color) -> void:
-	var x0 := int(rect.position.x)
-	var y0 := int(rect.position.y)
-	var x1 := int(rect.end.x)
-	var y1 := int(rect.end.y)
+# 优化的圆形填充：用水平扫描线替代全图遍历，复杂度 O(r²) 而非 O(W*H)
+func _fill_circle_on_img(img: Image, center: Vector2, radius: float, color: Color) -> void:
+	var cx := int(center.x)
+	var cy := int(center.y)
+	var r := int(radius)
 	var w := img.get_width()
 	var h := img.get_height()
-	for x in range(maxi(0, x0), mini(w, x1)):
-		for y in range(maxi(0, y0), mini(h, y1)):
-			img.set_pixel(x, y, color)
-
-
-func _draw_circle_to_img(img: Image, pos: Vector2, radius: float, color: Color) -> void:
-	var r = int(ceil(radius))
-	var cx = int(pos.x)
-	var cy = int(pos.y)
-	var w = img.get_width()
-	var h = img.get_height()
-	for dx in range(-r, r + 1):
-		for dy in range(-r, r + 1):
-			if dx * dx + dy * dy <= r * r:
-				var px = cx + dx
-				var py = cy + dy
-				if px >= 0 and px < w and py >= 0 and py < h:
-					img.set_pixel(px, py, color)
+	var r2 := r * r
+	for dy in range(-r, r + 1):
+		var py = cy + dy
+		if py < 0 or py >= h:
+			continue
+		var half_w := int(sqrt(max(0.0, float(r2 - dy * dy))))
+		var x_start := maxi(0, cx - half_w)
+		var x_end := mini(w, cx + half_w + 1)
+		for x in range(x_start, x_end):
+			img.set_pixel(x, py, color)
 
 
 func _draw_line_to_img(img: Image, from: Vector2, to: Vector2, color: Color) -> void:
