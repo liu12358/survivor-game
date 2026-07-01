@@ -16,6 +16,17 @@ var is_game_over: bool = false
 var is_paused: bool = false
 var modal_active: bool = false          # 模态面板（升级/结算）显示中，抑制 ESC 暂停菜单（D-2）
 var game_seed: String = ""
+
+# 连杀系统
+var kill_streak: int = 0                # 当前连杀数
+var kill_streak_timer: float = 0.0      # 连杀计时器
+var kill_streak_bonus: float = 0.0      # 连杀经验加成倍率
+const KILL_STREAK_TIMEOUT: float = 3.0  # 连杀中断时间
+const KILL_STREAK_THRESHOLDS: Array = [10, 25, 50, 100, 200]  # 连杀阈值
+
+# 战斗统计
+var total_damage_dealt: float = 0.0     # 总伤害输出
+var total_damage_taken: float = 0.0     # 总受伤量
 var rng := RandomNumberGenerator.new()   # 统一随机源（种子复刻，P2-11）
 var is_custom_seed: bool = false
 var current_difficulty: String = "normal"
@@ -64,6 +75,7 @@ var damage_buff_mult: float = 1.0        # 限时增伤 buff 乘数
 var exp_buff_mult: float = 1.0           # 限时经验翻倍 buff
 var invincible_buff: bool = false        # 限时无敌 buff
 var cheat_godmode: bool = false          # 金手指无敌（F3 菜单）
+var game_speed_mult: float = 1.0         # 游戏速度倍率（1.0正常/2.0双倍）
 
 # 全局词条加成占位（D-4，P1 接入词条时写入；现仅 lifesteal 接入以避免回归）
 var affix_move_speed: float = 0.0        # 轻盈：每层 +0.05
@@ -154,8 +166,33 @@ func reset_game_data() -> void:
 	affix_damage_bonus = 0.0
 	affix_lifesteal = 0.0
 	char_crit_bonus = 0.0
+	kill_streak = 0
+	kill_streak_timer = 0.0
+	kill_streak_bonus = 0.0
+	total_damage_dealt = 0.0
+	total_damage_taken = 0.0
 	_reset_player_stats()
 	current_hp = max_hp
+
+
+func add_kill_streak() -> void:
+	kill_streak += 1
+	kill_streak_timer = KILL_STREAK_TIMEOUT
+	# 检查是否达到阈值
+	for threshold in KILL_STREAK_THRESHOLDS:
+		if kill_streak == threshold:
+			# 经验加成：10连杀+20%，25连杀+40%，50连杀+60%，100连杀+80%，200连杀+100%
+			kill_streak_bonus = 0.2 * (KILL_STREAK_THRESHOLDS.find(threshold) + 1)
+			EventBus.streak_reached.emit(kill_streak)
+			break
+
+
+func update_kill_streak(delta: float) -> void:
+	if kill_streak_timer > 0:
+		kill_streak_timer -= delta
+		if kill_streak_timer <= 0:
+			kill_streak = 0
+			kill_streak_bonus = 0.0
 
 func _reset_player_stats() -> void:
 	# 兼容旧调用：统一走 recalc_stats()
@@ -226,7 +263,15 @@ func apply_character_passive() -> void:
 	char_crit_bonus = 0.0
 	if current_character == "selene":
 		char_crit_bonus = 0.10   # 弓手·鹰眼：暴击 +10%（射程见 effective_range_mult）
+	elif current_character == "little_fried_egg":
+		pass  # 小煎蛋：灼烧持续时间翻倍（见 get_burn_duration_mult）
 	recalc_stats()
+
+
+func get_burn_duration_mult() -> float:
+	if current_character == "little_fried_egg":
+		return 2.0
+	return 1.0
 
 
 # 攻击范围倍率：法师·星尘共鸣（每 5 级 +5%）/ 弓手·鹰眼（+25%）

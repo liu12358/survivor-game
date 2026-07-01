@@ -121,6 +121,17 @@ func _show_game_over(reason: String, stats: Dictionary) -> void:
 	_add_stat("玩家等级", "Lv.%d" % level)
 	_add_stat("获得金币", "%d 💰" % gold)
 
+	# 战斗统计
+	var dmg_dealt = GameState.total_damage_dealt
+	var dmg_taken = GameState.total_damage_taken
+	var dps = dmg_dealt / max(survival, 0.1)
+	_add_stat("总伤害输出", "%d" % int(dmg_dealt))
+	_add_stat("DPS", "%.1f" % dps)
+	_add_stat("承伤总量", "%d" % int(dmg_taken))
+	if survival > 0:
+		var kill_per_min = kills / (survival / 60.0)
+		_add_stat("击杀效率", "%.1f 只/分钟" % kill_per_min)
+
 	# 结算文案
 	var comment = Label.new()
 	comment.text = _get_comment(survival, reason)
@@ -144,9 +155,9 @@ func _add_stat(label_text: String, value_text: String) -> void:
 
 	var l = Label.new()
 	l.text = label_text
-	l.add_theme_font_size_override("font_size", 16)
-	l.modulate = Color(0.7, 0.75, 0.85)
-	l.custom_minimum_size = Vector2(100, 0)
+	l.add_theme_font_size_override("font_size", 15)
+	l.modulate = Color(0.6, 0.65, 0.75)
+	l.custom_minimum_size = Vector2(120, 0)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(l)
 
@@ -154,7 +165,7 @@ func _add_stat(label_text: String, value_text: String) -> void:
 	v.text = value_text
 	v.add_theme_font_size_override("font_size", 18)
 	v.modulate = Color(1.0, 1.0, 1.0)
-	v.custom_minimum_size = Vector2(100, 0)
+	v.custom_minimum_size = Vector2(120, 0)
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.add_child(v)
 

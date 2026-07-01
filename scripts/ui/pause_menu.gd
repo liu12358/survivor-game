@@ -28,7 +28,7 @@ func _create_ui() -> void:
 	_overlay.add_child(center)
 
 	_panel = Panel.new()
-	_panel.custom_minimum_size = Vector2(320, 260)
+	_panel.custom_minimum_size = Vector2(320, 420)
 	center.add_child(_panel)
 
 	var style = StyleBoxFlat.new()
@@ -70,31 +70,124 @@ func _create_ui() -> void:
 	spacer.custom_minimum_size = Vector2(0, 8)
 	vbox.add_child(spacer)
 
+	# ─── Build 概览 ───
+	var build_sep = HSeparator.new()
+	vbox.add_child(build_sep)
+
+	var build_title = Label.new()
+	build_title.text = "📋 当前 Build"
+	build_title.add_theme_font_size_override("font_size", 14)
+	build_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	build_title.modulate = Color(0.6, 0.8, 1.0)
+	vbox.add_child(build_title)
+
+	var build_container = VBoxContainer.new()
+	build_container.add_theme_constant_override("separation", 4)
+	vbox.add_child(build_container)
+
+	# 武器列表
+	var weapon_names = {
+		"magic_bolt": "🔮魔法弹", "fire_ring": "🔥烈焰环", "lightning_chain": "⚡闪电链",
+		"ice_storm": "❄️冰晶风暴", "holy_spear": "🏹圣光矛", "poison_cloud": "☠️毒雾",
+		"sword_orbit": "⚔️环绕剑", "piercing_arrow": "🎯穿透箭", "lava_zone": "🌋岩浆"
+	}
+	var weapons_text = "武器: "
+	var first = true
+	for wid in GameState.active_weapons:
+		if not first:
+			weapons_text += " "
+		weapons_text += weapon_names.get(wid, wid) + "Lv" + str(int(GameState.active_weapons[wid]))
+		if GameState.super_weapons.has(wid):
+			weapons_text += "★"
+		first = false
+	if GameState.active_weapons.is_empty():
+		weapons_text += "无"
+
+	var weapon_label = Label.new()
+	weapon_label.text = weapons_text
+	weapon_label.add_theme_font_size_override("font_size", 12)
+	weapon_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(weapon_label)
+
+	# 被动列表
+	var passive_names = {
+		"max_hp": "❤️生命", "speed": "👟疾步", "magnet": "🧲磁铁",
+		"armor": "🛡️铁壁", "exp_bonus": "💎经验", "crit": "🎯锐眼",
+		"lifesteal": "🩸吸血", "luck": "🍀幸运", "shield_max": "🔰护盾"
+	}
+	var passives_text = "被动: "
+	first = true
+	for pid in GameState.active_passives:
+		if not first:
+			passives_text += " "
+		passives_text += passive_names.get(pid, pid) + "Lv" + str(int(GameState.active_passives[pid]))
+		first = false
+	if GameState.active_passives.is_empty():
+		passives_text += "无"
+
+	var passive_label = Label.new()
+	passive_label.text = passives_text
+	passive_label.add_theme_font_size_override("font_size", 12)
+	passive_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(passive_label)
+
+	var build_sep2 = HSeparator.new()
+	vbox.add_child(build_sep2)
+
+	# 按钮样式
+	var btn_style = StyleBoxFlat.new()
+	btn_style.bg_color = Color(0.2, 0.25, 0.35, 0.9)
+	btn_style.border_width_left = 1
+	btn_style.border_width_right = 1
+	btn_style.border_width_top = 1
+	btn_style.border_width_bottom = 1
+	btn_style.border_color = Color(0.4, 0.5, 0.7, 0.5)
+	btn_style.corner_radius_top_left = 8
+	btn_style.corner_radius_top_right = 8
+	btn_style.corner_radius_bottom_left = 8
+	btn_style.corner_radius_bottom_right = 8
+	btn_style.content_margin_left = 16
+	btn_style.content_margin_right = 16
+	btn_style.content_margin_top = 8
+	btn_style.content_margin_bottom = 8
+
+	var btn_hover = btn_style.duplicate()
+	btn_hover.bg_color = Color(0.25, 0.35, 0.5, 0.95)
+	btn_hover.border_color = Color(0.5, 0.7, 1.0, 0.7)
+
 	var resume_btn = Button.new()
 	resume_btn.text = "▶ 继续游戏"
-	resume_btn.custom_minimum_size = Vector2(240, 40)
+	resume_btn.custom_minimum_size = Vector2(240, 42)
 	resume_btn.add_theme_font_size_override("font_size", 16)
+	resume_btn.add_theme_stylebox_override("normal", btn_style)
+	resume_btn.add_theme_stylebox_override("hover", btn_hover)
 	vbox.add_child(resume_btn)
 	resume_btn.pressed.connect(_on_resume)
 
 	var restart_btn = Button.new()
 	restart_btn.text = "🔄 重新开始"
-	restart_btn.custom_minimum_size = Vector2(240, 40)
+	restart_btn.custom_minimum_size = Vector2(240, 42)
 	restart_btn.add_theme_font_size_override("font_size", 16)
+	restart_btn.add_theme_stylebox_override("normal", btn_style)
+	restart_btn.add_theme_stylebox_override("hover", btn_hover)
 	vbox.add_child(restart_btn)
 	restart_btn.pressed.connect(_on_restart)
 
 	var menu_btn = Button.new()
 	menu_btn.text = "🏠 返回主菜单"
-	menu_btn.custom_minimum_size = Vector2(240, 40)
+	menu_btn.custom_minimum_size = Vector2(240, 42)
 	menu_btn.add_theme_font_size_override("font_size", 16)
+	menu_btn.add_theme_stylebox_override("normal", btn_style)
+	menu_btn.add_theme_stylebox_override("hover", btn_hover)
 	vbox.add_child(menu_btn)
 	menu_btn.pressed.connect(_on_to_menu)
 
 	var quit_btn = Button.new()
 	quit_btn.text = "🚪 退出游戏"
-	quit_btn.custom_minimum_size = Vector2(240, 40)
+	quit_btn.custom_minimum_size = Vector2(240, 42)
 	quit_btn.add_theme_font_size_override("font_size", 16)
+	quit_btn.add_theme_stylebox_override("normal", btn_style)
+	quit_btn.add_theme_stylebox_override("hover", btn_hover)
 	vbox.add_child(quit_btn)
 	quit_btn.pressed.connect(_on_quit)
 

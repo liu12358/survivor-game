@@ -23,11 +23,12 @@ func _shoot_projectile() -> void:
 	if not proj:
 		return
 
-	proj.global_position = global_position
+	var player_pos = get_parent().global_position
+	proj.global_position = player_pos
 
 	var dir := Vector2.RIGHT
 	if target and is_instance_valid(target):
-		dir = global_position.direction_to(target.global_position)
+		dir = player_pos.direction_to(target.global_position)
 	else:
 		dir = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
 
@@ -40,7 +41,6 @@ func _shoot_projectile() -> void:
 	proj.crit_mult = get_total_crit_mult()
 	proj.lifesteal = get_total_lifesteal()
 	proj.enable_split = level >= max_level
-	# 复用重置外观（对象池）
 	if proj.has_method("set_projectile_color"):
 		proj.set_projectile_color(Color(0.31, 0.76, 0.98))
 	if proj.has_method("set_projectile_scale"):
@@ -48,7 +48,7 @@ func _shoot_projectile() -> void:
 
 	proj.activate()
 
-	EventBus.screen_shake_requested.emit(1.0, 0.05)  # 微震屏
+	EventBus.screen_shake_requested.emit(1.0, 0.05)
 
 
 func _get_projectile() -> Node2D:

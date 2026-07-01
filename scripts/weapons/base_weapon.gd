@@ -59,6 +59,11 @@ func _process(delta: float) -> void:
 		_find_target()
 		if target and is_instance_valid(target):
 			_attack()
+			if has_node("/root/AudioManager"):
+				get_node("/root/AudioManager").play_sfx_shoot()
+		else:
+			# 没找到目标时也尝试攻击（随机方向）
+			_attack()
 
 
 func _initialize() -> void:
@@ -67,14 +72,16 @@ func _initialize() -> void:
 
 
 func _find_target() -> void:
-	# 在武器范围内找最近的敌人
 	var enemies = get_tree().get_nodes_in_group("enemy")
-	var nearest_dist = target_range * GameState.effective_range_mult()
+	var search_range = maxf(target_range, 800.0) * GameState.effective_range_mult()
 	target = null
+	var nearest_dist = search_range
+	# 用父节点位置（玩家位置）而非自身位置，避免子节点坐标延迟
+	var origin = get_parent().global_position if get_parent() else global_position
 	for enemy in enemies:
 		if not is_instance_valid(enemy):
 			continue
-		var dist = global_position.distance_to(enemy.global_position)
+		var dist = origin.distance_to(enemy.global_position)
 		if dist < nearest_dist:
 			nearest_dist = dist
 			target = enemy

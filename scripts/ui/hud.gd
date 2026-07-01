@@ -3,7 +3,7 @@
 # 通过代码构建UI，避免.tscn中节点缺失问题
 extends CanvasLayer
 
-const WEAPON_ICONS := {"magic_bolt": "🔮", "fire_ring": "🔥", "lightning_chain": "⚡", "ice_storm": "❄️", "holy_spear": "🏹", "poison_cloud": "☠️", "sword_orbit": "⚔️", "piercing_arrow": "🎯"}
+const WEAPON_ICONS := {"magic_bolt": "🔮", "fire_ring": "🔥", "lightning_chain": "⚡", "ice_storm": "❄️", "holy_spear": "🏹", "poison_cloud": "☠️", "sword_orbit": "⚔️", "piercing_arrow": "🎯", "lava_zone": "🌋"}
 const PASSIVE_ICONS := {"max_hp": "❤️", "speed": "👟", "magnet": "🧲", "armor": "🛡️", "exp_bonus": "💎", "crit": "🎯", "lifesteal": "🩸", "luck": "🍀", "shield_max": "🔰"}
 
 var equip_box: VBoxContainer
@@ -14,6 +14,7 @@ var level_label: Label
 var timer_label: Label
 var kill_label: Label
 var gold_label: Label
+var enemy_label: Label
 var mode_label: Label
 var boss_hp_bar: ProgressBar
 var boss_name_label: Label
@@ -21,6 +22,8 @@ var low_hp_overlay: ColorRect
 
 var _low_hp_tween: Tween
 var _exp_pulse_tween: Tween
+var _enemy_count_timer: float = 0.0
+var _streak_label: Label
 
 
 func _ready() -> void:
@@ -30,7 +33,6 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	# 经验溢出自动补升（面板关闭后触发下一级）
 	if GameState.is_paused:
 		return
 	if GameState.is_game_over:
@@ -38,6 +40,13 @@ func _process(_delta: float) -> void:
 	if GameState.current_exp >= GameState.exp_to_next_level:
 		if GameState.player_level < GameState.max_player_level:
 			_level_up()
+
+	# 怪物数量每0.5秒更新
+	_enemy_count_timer += _delta
+	if _enemy_count_timer >= 0.5:
+		_enemy_count_timer = 0.0
+		var count = get_tree().get_nodes_in_group("enemy").size()
+		enemy_label.text = "怪物: %d" % count
 
 
 func _create_ui() -> void:
@@ -82,10 +91,28 @@ func _create_ui() -> void:
 	hp_bar.min_value = 0
 	hp_bar.max_value = 100
 	hp_bar.value = 100
+
+	var hp_bg = StyleBoxFlat.new()
+	hp_bg.bg_color = Color(0.15, 0.15, 0.15, 0.8)
+	hp_bg.corner_radius_top_left = 4
+	hp_bg.corner_radius_top_right = 4
+	hp_bg.corner_radius_bottom_left = 4
+	hp_bg.corner_radius_bottom_right = 4
+	hp_bar.add_theme_stylebox_override("background", hp_bg)
+
+	var hp_fill = StyleBoxFlat.new()
+	hp_fill.bg_color = Color(0.2, 0.75, 0.3)
+	hp_fill.corner_radius_top_left = 4
+	hp_fill.corner_radius_top_right = 4
+	hp_fill.corner_radius_bottom_left = 4
+	hp_fill.corner_radius_bottom_right = 4
+	hp_bar.add_theme_stylebox_override("fill", hp_fill)
+
 	left_panel.add_child(hp_bar)
 
 	hp_label = Label.new()
 	hp_label.text = "100 / 100"
+	hp_label.add_theme_font_size_override("font_size", 12)
 	hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hp_label.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -94,11 +121,28 @@ func _create_ui() -> void:
 
 	# EXP条
 	exp_bar = ProgressBar.new()
-	exp_bar.custom_minimum_size = Vector2(300, 12)
+	exp_bar.custom_minimum_size = Vector2(300, 10)
 	exp_bar.show_percentage = false
 	exp_bar.min_value = 0
 	exp_bar.max_value = 100
 	exp_bar.value = 0
+
+	var exp_bg = StyleBoxFlat.new()
+	exp_bg.bg_color = Color(0.1, 0.1, 0.15, 0.7)
+	exp_bg.corner_radius_top_left = 3
+	exp_bg.corner_radius_top_right = 3
+	exp_bg.corner_radius_bottom_left = 3
+	exp_bg.corner_radius_bottom_right = 3
+	exp_bar.add_theme_stylebox_override("background", exp_bg)
+
+	var exp_fill = StyleBoxFlat.new()
+	exp_fill.bg_color = Color(0.3, 0.5, 1.0)
+	exp_fill.corner_radius_top_left = 3
+	exp_fill.corner_radius_top_right = 3
+	exp_fill.corner_radius_bottom_left = 3
+	exp_fill.corner_radius_bottom_right = 3
+	exp_bar.add_theme_stylebox_override("fill", exp_fill)
+
 	left_panel.add_child(exp_bar)
 
 	# ─── 中间弹性间距 ───
@@ -120,6 +164,15 @@ func _create_ui() -> void:
 	mode_label.modulate = Color(0.6, 0.8, 1.0)
 	right_panel.add_child(mode_label)
 
+	# 角色名
+	var char_label = Label.new()
+	var char_names = {"mage": "🧙 法师", "argo": "⚔️ 剑圣", "selene": "🏹 弓手", "little_fried_egg": "🍳 小煎蛋"}
+	char_label.text = char_names.get(GameState.current_character, "🧙 法师")
+	char_label.add_theme_font_size_override("font_size", 12)
+	char_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	char_label.modulate = Color(0.7, 0.8, 0.9)
+	right_panel.add_child(char_label)
+
 	timer_label = Label.new()
 	timer_label.text = "00:00"
 	timer_label.add_theme_font_size_override("font_size", 20)
@@ -136,6 +189,25 @@ func _create_ui() -> void:
 	gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right_panel.add_child(gold_label)
 
+	enemy_label = Label.new()
+	enemy_label.text = "怪物: 0"
+	enemy_label.add_theme_font_size_override("font_size", 14)
+	enemy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	enemy_label.modulate = Color(0.8, 0.6, 0.6)
+	right_panel.add_child(enemy_label)
+
+	# ─── 连杀提示（居中顶部，默认隐藏）───
+	_streak_label = Label.new()
+	_streak_label.text = ""
+	_streak_label.add_theme_font_size_override("font_size", 28)
+	_streak_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_streak_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_streak_label.offset_top = 80
+	_streak_label.z_index = 90
+	_streak_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_streak_label.visible = false
+	add_child(_streak_label)
+
 	# ─── BOSS 血条（居中顶部，默认隐藏）───
 	var boss_box = VBoxContainer.new()
 	boss_box.name = "BossBox"
@@ -150,17 +222,38 @@ func _create_ui() -> void:
 
 	boss_name_label = Label.new()
 	boss_name_label.text = "👑 暗影领主"
-	boss_name_label.add_theme_font_size_override("font_size", 16)
+	boss_name_label.add_theme_font_size_override("font_size", 18)
 	boss_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	boss_name_label.modulate = Color(1.0, 0.4, 0.4)
+	boss_name_label.modulate = Color(1.0, 0.3, 0.3)
 	boss_box.add_child(boss_name_label)
 
 	boss_hp_bar = ProgressBar.new()
-	boss_hp_bar.custom_minimum_size = Vector2(420, 18)
+	boss_hp_bar.custom_minimum_size = Vector2(420, 20)
 	boss_hp_bar.show_percentage = false
 	boss_hp_bar.min_value = 0
 	boss_hp_bar.max_value = 800
-	boss_hp_bar.value = 800
+
+	var boss_hp_bg = StyleBoxFlat.new()
+	boss_hp_bg.bg_color = Color(0.15, 0.08, 0.08, 0.9)
+	boss_hp_bg.corner_radius_top_left = 4
+	boss_hp_bg.corner_radius_top_right = 4
+	boss_hp_bg.corner_radius_bottom_left = 4
+	boss_hp_bg.corner_radius_bottom_right = 4
+	boss_hp_bg.border_width_left = 1
+	boss_hp_bg.border_width_right = 1
+	boss_hp_bg.border_width_top = 1
+	boss_hp_bg.border_width_bottom = 1
+	boss_hp_bg.border_color = Color(0.6, 0.2, 0.2, 0.8)
+	boss_hp_bar.add_theme_stylebox_override("background", boss_hp_bg)
+
+	var boss_hp_fill = StyleBoxFlat.new()
+	boss_hp_fill.bg_color = Color(0.85, 0.15, 0.15)
+	boss_hp_fill.corner_radius_top_left = 4
+	boss_hp_fill.corner_radius_top_right = 4
+	boss_hp_fill.corner_radius_bottom_left = 4
+	boss_hp_fill.corner_radius_bottom_right = 4
+	boss_hp_bar.add_theme_stylebox_override("fill", boss_hp_fill)
+
 	boss_box.add_child(boss_hp_bar)
 
 	# 装备栏（左下角，显示武器/被动）
@@ -171,6 +264,9 @@ func _create_ui() -> void:
 	equip_box.offset_bottom = -10
 	equip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(equip_box)
+
+	# 小地图（右上角）
+	_add_minimap()
 
 
 func _connect_signals() -> void:
@@ -190,6 +286,7 @@ func _connect_signals() -> void:
 	EventBus.game_started.connect(_update_all)     # 开局/重开后刷新全部显示
 	EventBus.player_revived.connect(_update_all)    # 复活后刷新血量/等级
 	EventBus.upgrade_selected.connect(_on_upgrade_selected)  # 升级后刷新装备栏
+	EventBus.streak_reached.connect(_on_streak_reached)
 
 
 # ─── 信号处理 ───
@@ -209,6 +306,17 @@ func _update_hp_display(cur: float = -1.0) -> void:
 	hp_bar.value = max(0, cur)
 	hp_label.text = "%d / %d" % [int(max(0, cur)), int(GameState.max_hp)]
 
+	# HP条颜色：绿→黄→红
+	var pct = cur / max(GameState.max_hp, 1.0)
+	var fill_style = hp_bar.get_theme_stylebox("fill") as StyleBoxFlat
+	if fill_style:
+		if pct > 0.6:
+			fill_style.bg_color = Color(0.2, 0.75, 0.3)
+		elif pct > 0.3:
+			fill_style.bg_color = Color(0.85, 0.7, 0.15)
+		else:
+			fill_style.bg_color = Color(0.85, 0.2, 0.2)
+
 	if cur < GameState.max_hp * 0.3:
 		EventBus.low_hp_warning_triggered.emit(cur / GameState.max_hp)
 	else:
@@ -218,7 +326,8 @@ func _update_hp_display(cur: float = -1.0) -> void:
 func _on_exp_collected(amount: int) -> void:
 	if GameState.player_level >= GameState.max_player_level:
 		return  # 50 级后停止累计经验（D-9）
-	GameState.current_exp += float(amount) * (1.0 + GameState.exp_bonus) * GameState.exp_buff_mult
+	var streak_mult = 1.0 + GameState.kill_streak_bonus
+	GameState.current_exp += float(amount) * (1.0 + GameState.exp_bonus) * GameState.exp_buff_mult * streak_mult
 	exp_bar.max_value = GameState.exp_to_next_level
 	exp_bar.value = GameState.current_exp
 
@@ -255,6 +364,9 @@ func _level_up() -> void:
 	exp_bar.max_value = GameState.exp_to_next_level
 	exp_bar.value = GameState.current_exp
 	level_label.text = "Lv.%d" % GameState.player_level
+	# 升级音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_levelup()
 	EventBus.player_level_up.emit(GameState.player_level)
 
 
@@ -371,3 +483,49 @@ func _refresh_equip() -> void:
 		lbl.modulate = Color(0.8, 0.9, 1.0)
 		prow.add_child(lbl)
 	equip_box.add_child(prow)
+
+
+func _add_minimap() -> void:
+	var minimap_script = load("res://scripts/ui/minimap.gd")
+	if minimap_script:
+		var minimap = Control.new()
+		minimap.set_script(minimap_script)
+		add_child(minimap)
+
+
+func _on_streak_reached(count: int) -> void:
+	var streak_text = ""
+	var streak_color = Color.WHITE
+	match count:
+		10:
+			streak_text = "🔥 10连杀！经验+20%"
+			streak_color = Color(1.0, 0.6, 0.2)
+		25:
+			streak_text = "🔥🔥 25连杀！经验+40%"
+			streak_color = Color(1.0, 0.4, 0.1)
+		50:
+			streak_text = "💥 50连杀！经验+60%"
+			streak_color = Color(1.0, 0.8, 0.0)
+		100:
+			streak_text = "💀 100连杀！经验+80%"
+			streak_color = Color(0.9, 0.2, 0.2)
+		200:
+			streak_text = "⭐ 200连杀！经验+100%"
+			streak_color = Color(1.0, 0.9, 0.3)
+
+	if streak_text.is_empty():
+		return
+
+	_streak_label.text = streak_text
+	_streak_label.modulate = streak_color
+	_streak_label.visible = true
+	_streak_label.scale = Vector2(1.3, 1.3)
+
+	var t = create_tween()
+	t.tween_property(_streak_label, "scale", Vector2.ONE, 0.2).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	t.tween_interval(1.5)
+	t.tween_property(_streak_label, "modulate:a", 0.0, 0.3)
+	t.tween_callback(func():
+		_streak_label.visible = false
+		_streak_label.modulate.a = 1.0
+	)

@@ -99,6 +99,7 @@ func _physics_process(delta: float) -> void:
 			_handle_movement(delta)
 			move_and_slide()
 			_check_contact_damage(delta)
+			_clamp_to_boundary_after_slide()
 			if "summon" in extra_affixes:
 				_summon_timer += delta
 				if _summon_timer >= 10.0:
@@ -136,6 +137,9 @@ func _handle_movement(delta: float) -> void:
 			_chase_sine(delta, to_player)
 		MovePattern.CHARGE:
 			_chase_charge(delta, to_player)
+
+	# 边界回弹
+	_clamp_to_boundary()
 
 
 # ─── 移动模式 ───
@@ -179,6 +183,21 @@ func _chase_charge(delta: float, to_player: Vector2) -> void:
 				var t = create_tween()
 				t.tween_property(sprite, "modulate", Color(1.5, 1.5, 1.5), 0.15)
 				t.tween_property(sprite, "modulate", Color.WHITE, 0.3)
+
+
+func _clamp_to_boundary() -> void:
+	var boundary_radius: float = 780.0
+	var dist = global_position.length()
+	if dist > boundary_radius:
+		var push_dir = -global_position.normalized()
+		velocity += push_dir * move_speed * 2.0
+
+
+func _clamp_to_boundary_after_slide() -> void:
+	var boundary_radius: float = 780.0
+	var dist = global_position.length()
+	if dist > boundary_radius:
+		global_position = global_position.normalized() * boundary_radius
 
 
 # ─── 远程攻击（幽灵） ───
@@ -283,6 +302,7 @@ func take_damage(amount: float, is_crit: bool = false) -> void:
 		return
 
 	current_health -= amount
+	GameState.total_damage_dealt += amount
 	EventBus.enemy_damaged.emit(self, amount, is_crit)
 	_hit_flash()
 
@@ -307,6 +327,11 @@ func take_damage(amount: float, is_crit: bool = false) -> void:
 func _hit_flash() -> void:
 	if sprite:
 		sprite.modulate = Color(3, 3, 3, 1)
+	# 受击闪光特效
+	VFX.spawn_hit_flash(global_position)
+	# 受击音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_hit()
 	if hit_flash_timer:
 		hit_flash_timer.start(0.1)
 		if not hit_flash_timer.timeout.is_connected(_on_hit_flash_end):
@@ -323,6 +348,10 @@ func _die() -> void:
 
 	# 多米诺死亡连锁：推开周围敌人
 	_domino_push()
+
+	# 击杀音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_kill()
 
 	EventBus.enemy_killed.emit(enemy_type, global_position, int(exp_value * elite_exp_mult), gold_value)
 
@@ -343,11 +372,18 @@ func _die() -> void:
 		EventBus.elite_killed.emit(global_position, {"affix": elite_affix, "exp_bonus": exp_value})
 
 	remove_from_group("enemy")
-	# 池化怪物释放回池，非池化直接销毁
-	if _pool_ref and _pool_ref.has_method("release"):
-		_pool_ref.release(self)
-	else:
-		queue_free()
+
+	# 死亡动画：缩小+淡出
+	var t = create_tween()
+	t.set_parallel(true)
+	t.tween_property(self, "scale", Vector2.ZERO, 0.15).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_BACK)
+	t.tween_property(self, "modulate:a", 0.0, 0.15)
+	t.chain().tween_callback(func():
+		if _pool_ref and _pool_ref.has_method("release"):
+			_pool_ref.release(self)
+		else:
+			queue_free()
+	)
 
 
 func _split_on_death() -> void:
@@ -378,20 +414,17 @@ func _event_explode() -> void:
 func _spawn_death_particles() -> void:
 	if not SaveSystem.get_setting("particles"):
 		return
-	for i in range(6):
-		var angle = randf() * TAU
-		var dist = randf_range(15, 35)
-		var target = global_position + Vector2(cos(angle), sin(angle)) * dist
-		var p = ColorRect.new()
-		p.color = Color(1.0, 0.6, 0.1, 0.8)
-		p.size = Vector2(4, 4)
-		p.pivot_offset = Vector2(2, 2)
-		get_tree().current_scene.add_child(p)
-		p.global_position = global_position - Vector2(2, 2)
-		var t = create_tween()
-		t.tween_property(p, "global_position", target, 0.25)
-		t.parallel().tween_property(p, "color:a", 0.0, 0.25)
-		t.tween_callback(p.queue_free)
+	# VFX 星形爆散
+	VFX.spawn_kill_burst(global_position, Color(1.0, 0.7, 0.2), 8)
+	# 中心冲击波
+	var wave := VFX.make_shockwave(Color(1.0, 0.5, 0.1, 0.6), 30.0)
+	wave.global_position = global_position
+	get_tree().current_scene.add_child(wave)
+	var wt := wave.create_tween()
+	wt.set_parallel(true)
+	wt.tween_property(wave, "scale", Vector2.ONE * 2.0, 0.2)
+	wt.tween_property(wave, "modulate:a", 0.0, 0.2)
+	wt.chain().tween_callback(wave.queue_free)
 
 
 func _leave_poison_cloud() -> void:
@@ -522,6 +555,7 @@ func reset_for_pool() -> void:
 		sprite.modulate = Color.WHITE
 		sprite.scale = Vector2.ONE
 	scale = Vector2.ONE
+	modulate = Color.WHITE
 	visible = true
 	process_mode = Node.PROCESS_MODE_INHERIT
 

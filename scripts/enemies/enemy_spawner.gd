@@ -7,7 +7,7 @@ extends Node2D
 @export var spawn_interval: float = 1.5
 @export var spawn_interval_min: float = 0.3
 @export var max_enemies: int = 200
-@export var spawn_bounds: Rect2 = Rect2(-900, -900, 1800, 1800)
+@export var spawn_bounds: Rect2 = Rect2(-800, -800, 1600, 1600)
 
 # 内部状态
 var _spawn_timer: float = 0.0
@@ -45,6 +45,7 @@ func _ready() -> void:
 
 func _on_enemy_killed(_type: String, pos: Vector2, exp_val: int, gold_val: int) -> void:
 	SaveSystem.record_kill(_type)
+	GameState.add_kill_streak()
 	spawn_exp_gem(pos, exp_val, gold_val)
 
 
@@ -226,8 +227,13 @@ func _create_enemy(type: String) -> Node2D:
 func _get_spawn_position() -> Vector2:
 	var cam_pos = _get_camera_position()
 	var angle = GameState.rng.randf() * TAU
-	var dist = 800 + GameState.rng.randf() * 200  # 屏幕外
-	return cam_pos + Vector2(cos(angle), sin(angle)) * dist
+	var dist = 500 + GameState.rng.randf() * 200  # 缩小生成距离
+	var pos = cam_pos + Vector2(cos(angle), sin(angle)) * dist
+	# 确保生成在地图边界内
+	var boundary = 700.0
+	if pos.length() > boundary:
+		pos = pos.normalized() * boundary
+	return pos
 
 
 func _get_camera_position() -> Vector2:
@@ -284,12 +290,12 @@ func _apply_late_game_affix(enemy: Node2D) -> void:
 
 
 func _cleanup_dead_enemies() -> void:
-	# 移除已销毁的敌人引用
-	var cleaned: Array[Node2D] = []
-	for enemy in _active_enemies:
-		if is_instance_valid(enemy):
-			cleaned.append(enemy)
-	_active_enemies = cleaned
+	# 使用倒序遍历安全删除，避免创建新数组
+	var i := _active_enemies.size() - 1
+	while i >= 0:
+		if not is_instance_valid(_active_enemies[i]):
+			_active_enemies.remove_at(i)
+		i -= 1
 
 
 func get_enemy_count() -> int:

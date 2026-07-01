@@ -7,26 +7,57 @@ func _ready() -> void:
 
 
 func _create_ui() -> void:
+	# 深色渐变背景
 	var bg = ColorRect.new()
 	bg.set_anchors_preset(PRESET_FULL_RECT)
-	bg.color = Color(0.06, 0.08, 0.12)
+	bg.color = Color(0.04, 0.05, 0.1)
 	add_child(bg)
 
+	# 顶部光晕装饰
+	var glow_top = ColorRect.new()
+	glow_top.set_anchors_preset(PRESET_TOP_WIDE)
+	glow_top.offset_bottom = 200
+	glow_top.color = Color(0.1, 0.2, 0.4, 0.15)
+	add_child(glow_top)
+
+	# 底部光晕装饰
+	var glow_bottom = ColorRect.new()
+	glow_bottom.set_anchors_preset(PRESET_BOTTOM_WIDE)
+	glow_bottom.offset_top = -150
+	glow_bottom.color = Color(0.15, 0.1, 0.25, 0.1)
+	add_child(glow_bottom)
+
+	# 标题
 	var title = Label.new()
 	title.text = "星屑割草"
-	title.add_theme_font_size_override("font_size", 44)
+	title.add_theme_font_size_override("font_size", 48)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	title.offset_top = 50
+	title.offset_top = 40
+	title.modulate = Color(0.9, 0.95, 1.0)
 	add_child(title)
+
+	# 标题发光效果
+	var title_glow = Label.new()
+	title_glow.text = "星屑割草"
+	title_glow.add_theme_font_size_override("font_size", 48)
+	title_glow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_glow.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title_glow.offset_top = 40
+	title_glow.modulate = Color(0.3, 0.5, 0.9, 0.3)
+	title_glow.z_index = -1
+	add_child(title_glow)
+	var gt = create_tween().set_loops()
+	gt.tween_property(title_glow, "modulate:a", 0.15, 1.5)
+	gt.tween_property(title_glow, "modulate:a", 0.35, 1.5)
 
 	var subtitle = Label.new()
 	subtitle.text = "2D 俯视角割草生存 Roguelike"
-	subtitle.add_theme_font_size_override("font_size", 16)
-	subtitle.modulate = Color(0.5, 0.6, 0.8)
+	subtitle.add_theme_font_size_override("font_size", 14)
+	subtitle.modulate = Color(0.45, 0.55, 0.75)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	subtitle.offset_top = 100
+	subtitle.offset_top = 95
 	add_child(subtitle)
 
 	var center = CenterContainer.new()
@@ -133,15 +164,25 @@ func _build_character(box: VBoxContainer) -> void:
 	char_label.modulate = Color(0.6, 0.7, 0.8)
 	char_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(char_label)
+
+	# 被动能力描述
+	var passive_desc = Label.new()
+	passive_desc.text = _get_char_passive()
+	passive_desc.add_theme_font_size_override("font_size", 11)
+	passive_desc.modulate = Color(0.4, 0.7, 0.9)
+	passive_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(passive_desc)
+
 	var row = HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
 	var unlocked_chars = SaveSystem.data.get("unlocked_characters", ["mage"])
 	var char_list = [
-		{"id": "mage", "text": "🧙 法师"},
-		{"id": "argo", "text": "⚔️ 剑圣"},
-		{"id": "selene", "text": "🏹 弓手"},
+		{"id": "mage", "text": "🧙 法师", "hint": "初始可用", "passive": "⭐ 星尘共鸣：每5级武器范围+5%"},
+		{"id": "argo", "text": "⚔️ 剑圣", "hint": "击杀BOSS", "passive": "⚔️ 剑气纵横：近战击杀10%触发360°剑气"},
+		{"id": "selene", "text": "🏹 弓手", "hint": "累计杀1万只", "passive": "🎯 鹰眼：射程+25%，暴击+10%"},
+		{"id": "little_fried_egg", "text": "🍳 小煎蛋", "hint": "累计5局", "passive": "🌋 炽热之心：灼烧持续时间翻倍"},
 	]
 	for c in char_list:
 		var cbtn = Button.new()
@@ -150,10 +191,14 @@ func _build_character(box: VBoxContainer) -> void:
 		cbtn.disabled = not is_unlocked
 		cbtn.custom_minimum_size = Vector2(82, 28)
 		cbtn.add_theme_font_size_override("font_size", 12)
+		cbtn.tooltip_text = c["hint"] if not is_unlocked else ""
 		if is_unlocked:
-			cbtn.pressed.connect(func(id=c["id"]):
-				GameState.current_character = id
+			var cid = c["id"]
+			var cpassive = c["passive"]
+			cbtn.pressed.connect(func():
+				GameState.current_character = cid
 				char_label.text = "角色: " + _get_char_name()
+				passive_desc.text = cpassive
 			)
 		row.add_child(cbtn)
 
@@ -215,22 +260,35 @@ func _build_seed(box: VBoxContainer) -> void:
 func _make_button(text: String, color: Color) -> Button:
 	var btn = Button.new()
 	btn.text = text
-	btn.custom_minimum_size = Vector2(260, 46)
-	btn.add_theme_font_size_override("font_size", 19)
+	btn.custom_minimum_size = Vector2(280, 50)
+	btn.add_theme_font_size_override("font_size", 18)
+
 	var style = StyleBoxFlat.new()
-	style.bg_color = color
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	style.content_margin_left = 20
-	style.content_margin_right = 20
-	style.content_margin_top = 10
-	style.content_margin_bottom = 10
+	style.bg_color = Color(color.r * 0.6, color.g * 0.6, color.b * 0.6, 0.85)
+	style.border_width_left = 2
+	style.border_width_right = 2
+	style.border_width_top = 2
+	style.border_width_bottom = 2
+	style.border_color = Color(color.r * 1.2, color.g * 1.2, color.b * 1.2, 0.6)
+	style.corner_radius_top_left = 10
+	style.corner_radius_top_right = 10
+	style.corner_radius_bottom_left = 10
+	style.corner_radius_bottom_right = 10
+	style.content_margin_left = 24
+	style.content_margin_right = 24
+	style.content_margin_top = 12
+	style.content_margin_bottom = 12
 	btn.add_theme_stylebox_override("normal", style)
+
 	var hover = style.duplicate()
-	hover.bg_color = Color(color.r * 1.3, color.g * 1.3, color.b * 1.3)
+	hover.bg_color = Color(color.r * 0.8, color.g * 0.8, color.b * 0.8, 0.95)
+	hover.border_color = Color(color.r * 1.5, color.g * 1.5, color.b * 1.5, 0.8)
 	btn.add_theme_stylebox_override("hover", hover)
+
+	var pressed = style.duplicate()
+	pressed.bg_color = Color(color.r * 0.4, color.g * 0.4, color.b * 0.4, 0.9)
+	btn.add_theme_stylebox_override("pressed", pressed)
+
 	return btn
 
 
@@ -261,7 +319,16 @@ func _get_char_name() -> String:
 	match GameState.current_character:
 		"argo": return "⚔️ 剑圣"
 		"selene": return "🏹 弓手"
+		"little_fried_egg": return "🍳 小煎蛋"
 		_: return "🧙 法师"
+
+
+func _get_char_passive() -> String:
+	match GameState.current_character:
+		"argo": return "⚔️ 剑气纵横：近战击杀10%触发360°剑气"
+		"selene": return "🎯 鹰眼：射程+25%，暴击+10%"
+		"little_fried_egg": return "🌋 炽热之心：灼烧持续时间翻倍"
+		_: return "⭐ 星尘共鸣：每5级武器范围+5%"
 
 
 func _get_skin_name() -> String:
