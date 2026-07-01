@@ -40,8 +40,9 @@ const WEAPON_INFO = {
 	"poison_cloud":     {"name": "毒雾", "icon": "☠️"},
 	"sword_orbit":      {"name": "环绕剑刃", "icon": "⚔️"},
 	"piercing_arrow":   {"name": "穿透箭", "icon": "🎯"},
+	"lava_zone":        {"name": "岩浆", "icon": "🌋"},
 }
-const ALL_WEAPONS = ["magic_bolt", "fire_ring", "lightning_chain", "ice_storm", "holy_spear", "poison_cloud"]
+const ALL_WEAPONS = ["magic_bolt", "fire_ring", "lightning_chain", "ice_storm", "holy_spear", "poison_cloud", "lava_zone"]
 
 # ─── 词条定义 ───
 # 普通词条 15%概率
@@ -452,6 +453,29 @@ func _create_card(data: Dictionary, index: int) -> Control:
 	desc.custom_minimum_size = Vector2(170, 0)
 	vbox.add_child(desc)
 
+	# 稀有度标签
+	if is_rare:
+		var rare_label = Label.new()
+		rare_label.text = "★ 稀有"
+		rare_label.add_theme_font_size_override("font_size", 11)
+		rare_label.modulate = Color(1.0, 0.84, 0.0)
+		rare_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(rare_label)
+	elif data.get("type") == "new_weapon":
+		var new_label = Label.new()
+		new_label.text = "✦ 新武器"
+		new_label.add_theme_font_size_override("font_size", 11)
+		new_label.modulate = Color(0.4, 0.8, 1.0)
+		new_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(new_label)
+	elif data.get("type") == "weapon_upgrade" and data.get("level", 1) >= 7:
+		var max_label = Label.new()
+		max_label.text = "⬆ MAX"
+		max_label.add_theme_font_size_override("font_size", 11)
+		max_label.modulate = Color(0.9, 0.6, 0.2)
+		max_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vbox.add_child(max_label)
+
 	# hover 效果
 	panel.mouse_entered.connect(func():
 		style.border_color = Color(0.9, 0.75, 0.2, 1) if is_rare else Color(0.6, 0.8, 1.0, 1)
@@ -695,6 +719,7 @@ func _add_weapon_to_player(p: Node, wid: String) -> void:
 		"poison_cloud": scene_path = "res://scenes/weapons/poison_cloud.tscn"
 		"sword_orbit": scene_path = "res://scenes/weapons/sword_orbit.tscn"
 		"piercing_arrow": scene_path = "res://scenes/weapons/piercing_arrow.tscn"
+		"lava_zone": scene_path = "res://scenes/weapons/lava_zone.tscn"
 	if scene_path != "" and ResourceLoader.exists(scene_path):
 		var ws = load(scene_path)
 		var w = ws.instantiate()
@@ -744,6 +769,10 @@ func _check_super_weapon_synthesis() -> void:
 	if GameState.active_weapons.get("poison_cloud", 0) >= 7 and GameState.active_passives.get("luck", 0) >= 5:
 		if not GameState.super_weapons.has("poison_cloud"):
 			_synthesize_super("poison_cloud", "瘟疫")
+	# 岩浆MAX + 护盾MAX → 熔岩之心
+	if GameState.active_weapons.get("lava_zone", 0) >= 7 and GameState.active_passives.get("shield_max", 0) >= 5:
+		if not GameState.super_weapons.has("lava_zone"):
+			_synthesize_super("lava_zone", "熔岩之心")
 
 	# Mega-Evolution：击杀 BOSS 且可用时检查
 	_check_mega_evolution()
@@ -943,5 +972,15 @@ func _get_weapon_upgrade_desc(weapon_id: String, next_lv: int) -> String:
 				6: return "范围提升（90→130）"
 				7: return "持续提升（5→7s）"
 				8: return "★ 超武·瘟疫：跟随玩家"
+				_: return "属性提升"
+		"lava_zone":
+			match next_lv:
+				2: return "伤害 +50%（8→12）"
+				3: return "范围提升（100→120）"
+				4: return "频率提升（1.0→0.8s）"
+				5: return "伤害 +56%（12→20）"
+				6: return "范围+频率提升（150/1.5s）"
+				7: return "伤害+持续提升（35/5s）"
+				8: return "★ 超武·熔岩之心：范围翻倍"
 				_: return "属性提升"
 		_: return "属性提升"

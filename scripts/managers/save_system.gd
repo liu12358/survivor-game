@@ -29,6 +29,7 @@ const DEFAULT_SAVE_DATA: Dictionary = {
 	},
 	"settings": {
 		"master_volume": 0.8,
+		"sfx": true,
 		"screen_shake": true,
 		"particles": true,
 		"damage_numbers": true,
@@ -178,6 +179,8 @@ func add_game_result(gold: int, kills: int, survival: float) -> void:
 		data["highest_survival"] = survival
 	if data["total_kills"] >= 10000:
 		unlock_character("selene")
+	if data["total_games"] >= 5:
+		unlock_character("little_fried_egg")
 	save_game()
 
 

@@ -38,10 +38,12 @@ var _epic_zoom_timer: float = 0.0
 var _epic_zoom_active: bool = false
 
 const GRID_SIZE: float = 96.0
-const MAP_RADIUS: float = 1500.0
+const MAP_RADIUS: float = 800.0
 
 # 背景装饰种子（固定，每局相同）
 var _bg_seed: int = 0
+var _bg_texture: ImageTexture = null
+var _bg_regeneration_needed: bool = true
 
 
 func _ready() -> void:
@@ -51,7 +53,26 @@ func _ready() -> void:
 	_setup_joystick()
 	_setup_cheat()
 	_setup_glow()
+	_setup_boundary()
+	# 强制重新生成背景缓存
+	_bg_texture = null
+	_bg_regeneration_needed = true
 	_start_game()
+	# 强制重绘
+	queue_redraw()
+
+
+func _setup_boundary() -> void:
+	var body = StaticBody2D.new()
+	body.name = "MapBoundary"
+	body.collision_layer = 0
+	body.collision_mask = 1 | 2  # 碰撞玩家(1)和敌人(2)
+	var shape = CollisionShape2D.new()
+	var circle = CircleShape2D.new()
+	circle.radius = MAP_RADIUS
+	shape.shape = circle
+	body.add_child(shape)
+	add_child(body)
 
 
 func _setup_glow() -> void:
@@ -60,14 +81,44 @@ func _setup_glow() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_CANVAS
 	env.glow_enabled = true
-	env.glow_intensity = 0.8
-	env.glow_strength = 1.0
-	env.glow_bloom = 0.1
+	env.glow_intensity = 0.9
+	env.glow_strength = 1.2
+	env.glow_bloom = 0.15
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
-	env.glow_hdr_threshold = 0.85
+	env.glow_hdr_threshold = 0.8
+	env.glow_layers = 3
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
+
+	# 屏幕暗角（CanvasLayer 确保在最上层）
+	_setup_vignette()
+
+
+func _setup_vignette() -> void:
+	var vignette_layer := CanvasLayer.new()
+	vignette_layer.layer = 10
+	vignette_layer.name = "Vignette"
+	add_child(vignette_layer)
+
+	# 创建暗角纹理
+	var size := 256
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var center := Vector2(size / 2.0, size / 2.0)
+	for x in range(size):
+		for y in range(size):
+			var d := Vector2(x - y if false else x, y).distance_to(center) / (size / 2.0)
+			var alpha := clampf((d - 0.5) * 1.5, 0.0, 0.7)
+			img.set_pixel(x, y, Color(0, 0, 0, alpha))
+
+	var tex := ImageTexture.create_from_image(img)
+	var sprite := TextureRect.new()
+	sprite.texture = tex
+	sprite.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sprite.stretch_mode = TextureRect.STRETCH_SCALE
+	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sprite.modulate = Color(0.8, 0.85, 1.0, 0.4)
+	vignette_layer.add_child(sprite)
 
 
 func _notification(what: int) -> void:
@@ -77,57 +128,90 @@ func _notification(what: int) -> void:
 
 
 func _draw() -> void:
-	var rng = RandomNumberGenerator.new()
-	rng.seed = 42
+	if _bg_regeneration_needed:
+		_bg_texture = null
+		_bg_regeneration_needed = false
 
-	# ─── 1. 地面底色：从深绿到深蓝的径向渐变 ───
-	var rings = 12
-	for i in range(rings, 0, -1):
-		var t = float(i) / rings
-		var r = MAP_RADIUS * t
-		var g = lerpf(0.06, 0.18, 1.0 - t)
-		var b = lerpf(0.04, 0.10, 1.0 - t)
-		var alpha = lerpf(0.6, 1.0, t)
-		draw_circle(Vector2.ZERO, r, Color(g, lerpf(0.14, 0.08, t), b, alpha))
+	if _bg_texture:
+		draw_texture(_bg_texture, -_bg_texture.get_size() / 2.0)
+	else:
+		# 直接绘制背景（不用缓存）
+		_draw_dungeon_background()
 
-	# ─── 2. 精细网格 ───
-	var grid_color = Color(0.12, 0.16, 0.10, 0.35)
-	for i in range(-int(MAP_RADIUS / GRID_SIZE), int(MAP_RADIUS / GRID_SIZE) + 1):
-		var x = i * GRID_SIZE
-		var half_h = sqrt(max(0, MAP_RADIUS * MAP_RADIUS - x * x))
+	# 边界光环
+	draw_arc(Vector2.ZERO, MAP_RADIUS - 2, 0, TAU, 96, Color(0.6, 0.5, 0.3, 0.9), 4.0)
+	draw_arc(Vector2.ZERO, MAP_RADIUS, 0, TAU, 96, Color(0.5, 0.4, 0.25, 0.7), 3.0)
+
+
+func _draw_dungeon_background() -> void:
+	# 简单的地牢背景：用draw_circle和draw_rect直接绘制
+	# 1. 底色
+	draw_circle(Vector2.ZERO, MAP_RADIUS, Color(0.12, 0.10, 0.14))
+
+	# 2. 石砖网格线
+	var grid_color = Color(0.18, 0.16, 0.22, 0.5)
+	var tile_size = 48.0
+	for i in range(-int(MAP_RADIUS / tile_size), int(MAP_RADIUS / tile_size) + 1):
+		var x = i * tile_size
+		var half_h = sqrt(max(0.0, MAP_RADIUS * MAP_RADIUS - x * x))
 		if half_h > 0:
 			draw_line(Vector2(x, -half_h), Vector2(x, half_h), grid_color, 1.0)
-			draw_line(Vector2(-half_h, x), Vector2(half_h, x), grid_color, 1.0)
+		var y = i * tile_size
+		var half_w = sqrt(max(0.0, MAP_RADIUS * MAP_RADIUS - y * y))
+		if half_w > 0:
+			draw_line(Vector2(-half_w, y), Vector2(half_w, y), grid_color, 1.0)
 
-	# ─── 3. 散落星尘点（随机散布的小光点） ───
-	for j in range(200):
+	# 3. 砖块装饰（随机分布的小方块）
+	var rng = RandomNumberGenerator.new()
+	rng.seed = 42
+	for k in range(40):
 		var angle = rng.randf() * TAU
-		var dist = rng.randf_range(0, MAP_RADIUS * 0.95)
+		var dist = rng.randf_range(50, MAP_RADIUS * 0.8)
 		var pos = Vector2(cos(angle), sin(angle)) * dist
-		var size = rng.randf_range(1.5, 4.0)
-		var brightness = rng.randf_range(0.15, 0.5)
-		var hue = rng.randf_range(0.55, 0.65) if rng.randf() < 0.7 else rng.randf_range(0.1, 0.2)
-		draw_circle(pos, size, Color.from_hsv(hue, 0.2, brightness, 0.7))
+		var brick_size = rng.randf_range(20, 40)
+		var rect = Rect2(pos.x - brick_size/2, pos.y - brick_size/2, brick_size, brick_size)
+		var shade = rng.randf_range(0.14, 0.20)
+		draw_rect(rect, Color(shade, shade * 0.9, shade * 1.1))
 
-	# ─── 4. 碎石装饰 ───
-	for k in range(30):
+	# 4. 火把光点
+	for j in range(15):
 		var angle = rng.randf() * TAU
-		var dist = rng.randf_range(100, MAP_RADIUS * 0.8)
+		var dist = rng.randf_range(100, MAP_RADIUS * 0.7)
 		var pos = Vector2(cos(angle), sin(angle)) * dist
-		var rock_size = rng.randf_range(3, 8)
-		var rock_col = Color(0.08, 0.11, 0.07, rng.randf_range(0.3, 0.6))
-		draw_circle(pos, rock_size, rock_col)
-		# 碎石阴影
-		draw_circle(pos + Vector2(1, 1), rock_size * 0.8, Color(0.04, 0.06, 0.03, 0.4))
+		draw_circle(pos, 12, Color(0.5, 0.3, 0.1, 0.15))
+		draw_circle(pos, 4, Color(0.9, 0.6, 0.2, 0.6))
 
-	# ─── 5. 外圈星环 ───
-	draw_arc(Vector2.ZERO, MAP_RADIUS - 2, 0, TAU, 96, Color(0.2, 0.35, 0.25, 0.6), 2.5)
-	draw_arc(Vector2.ZERO, MAP_RADIUS, 0, TAU, 96, Color(0.3, 0.5, 0.35, 0.4), 1.5)
+	# 5. 中心出生点
+	draw_circle(Vector2.ZERO, 50, Color(0.18, 0.16, 0.22, 0.3))
 
-	# ─── 6. 中心出生点光晕 ───
-	for m in range(5):
-		var t = float(m) / 5
-		draw_circle(Vector2.ZERO, lerpf(20, 80, t), Color(0.3, 0.5, 0.4, 0.15 * (1.0 - t)))
+
+func _draw_circle_to_img(img: Image, pos: Vector2, radius: float, color: Color) -> void:
+	var r = int(ceil(radius))
+	var cx = int(pos.x)
+	var cy = int(pos.y)
+	var w = img.get_width()
+	var h = img.get_height()
+	for dx in range(-r, r + 1):
+		for dy in range(-r, r + 1):
+			if dx * dx + dy * dy <= r * r:
+				var px = cx + dx
+				var py = cy + dy
+				if px >= 0 and px < w and py >= 0 and py < h:
+					img.set_pixel(px, py, color)
+
+
+func _draw_line_to_img(img: Image, from: Vector2, to: Vector2, color: Color) -> void:
+	var steps = int(max(abs(to.x - from.x), abs(to.y - from.y)))
+	if steps == 0:
+		return
+	var w = img.get_width()
+	var h = img.get_height()
+	for i in range(steps + 1):
+		var t = float(i) / steps
+		var px = int(lerpf(from.x, to.x, t))
+		var py = int(lerpf(from.y, to.y, t))
+		if px >= 0 and px < w and py >= 0 and py < h:
+			img.set_pixel(px, py, color)
 
 
 func _process(delta: float) -> void:
@@ -138,6 +222,9 @@ func _process(delta: float) -> void:
 		return
 
 	_total_game_time += delta
+
+	# 连杀计时器
+	GameState.update_kill_streak(delta)
 
 	# 限时 Buff 计时
 	_update_buffs(delta)
@@ -188,9 +275,18 @@ func _start_game() -> void:
 
 	# 强制重置全局状态（防止残留）
 	Engine.time_scale = 1.0
+	GameState.game_speed_mult = 1.0
 	get_tree().paused = false
 	GameState.is_paused = false
 	GameState.is_game_over = false
+
+	# 确保玩家和摄像机在地图中心
+	if is_instance_valid(player):
+		player.global_position = Vector2.ZERO
+		player.velocity = Vector2.ZERO
+	if is_instance_valid(camera):
+		camera.global_position = Vector2.ZERO
+		camera.reset_smoothing()
 
 	# 重置升级面板状态
 	if level_up_panel and level_up_panel.has_method("reset_for_new_game"):
@@ -268,6 +364,7 @@ func _grant_starting_weapon() -> void:
 	match GameState.current_character:
 		"argo": wid = "sword_orbit"
 		"selene": wid = "piercing_arrow"
+		"little_fried_egg": wid = "lava_zone"
 		_: wid = "magic_bolt"
 	var path := "res://scenes/weapons/%s.tscn" % wid
 	if ResourceLoader.exists(path):
@@ -281,6 +378,10 @@ func _spawn_boss() -> void:
 	_boss_spawned = true
 	EventBus.boss_spawned.emit()
 	EventBus.screen_shake_requested.emit(12.0, 0.5)
+
+	# BOSS降临音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_boss_spawn()
 
 	# BOSS降临大字提示
 	_show_boss_title()
@@ -449,7 +550,11 @@ func _sword_wave() -> void:
 	t.tween_callback(ring.queue_free)
 
 
+static var _wave_tex: ImageTexture = null
+
 func _make_wave_tex() -> Texture2D:
+	if _wave_tex:
+		return _wave_tex
 	var size := 100
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -459,7 +564,8 @@ func _make_wave_tex() -> Texture2D:
 			var d := Vector2(x - c, y - c).length()
 			if d <= c - 1 and d >= c - 6:
 				img.set_pixel(x, y, Color(0.85, 0.95, 1.0, 0.9))
-	return ImageTexture.create_from_image(img)
+	_wave_tex = ImageTexture.create_from_image(img)
+	return _wave_tex
 
 
 func _on_boss_killed() -> void:
@@ -539,7 +645,11 @@ func _show_mega_hint() -> void:
 	t.tween_callback(label.queue_free)
 
 
+static var _chest_tex: ImageTexture = null
+
 func _make_chest_tex() -> Texture2D:
+	if _chest_tex:
+		return _chest_tex
 	var img := Image.create(24, 24, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	# 画一个简单宝箱: 金色方块 + 紫色光芒
@@ -549,12 +659,16 @@ func _make_chest_tex() -> Texture2D:
 	for x in range(8, 16):
 		for y in range(3, 7):
 			img.set_pixel(x, y, Color(0.8, 0.5, 1.0, 1.0))
-	return ImageTexture.create_from_image(img)
+	_chest_tex = ImageTexture.create_from_image(img)
+	return _chest_tex
 
 
 func _game_victory() -> void:
 	_game_ended = true
 	GameState.is_game_over = true
+	# 胜利音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_victory()
 	var stats = {
 		"kills": GameState.kills,
 		"survival_time": _total_game_time,
@@ -646,8 +760,10 @@ func _get_viewport_size() -> Vector2:
 func _on_screen_shake(amplitude: float, duration: float) -> void:
 	if not SaveSystem.get_setting("screen_shake"):
 		return
-	if amplitude <= _shake_amplitude and _shake_duration > 0:
-		return  # 不强于当前震动则忽略
+	# 比较当前实际振幅（考虑衰减），而非原始振幅
+	var current_amplitude := _shake_amplitude * (_shake_duration / max(_shake_duration + 0.01, 0.01)) if _shake_duration > 0 else 0.0
+	if amplitude <= current_amplitude:
+		return  # 不强于当前实际震动则忽略
 	_shake_amplitude = amplitude
 	_shake_duration = duration
 	_shake_priority = amplitude

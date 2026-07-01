@@ -26,7 +26,11 @@ func _ring_visual() -> void:
 	add_child(_visual_ring)
 
 
+static var _ring_tex_cache: Dictionary = {}  # {size: Texture2D}
+
 func _make_ring_texture(size: int) -> Texture2D:
+	if _ring_tex_cache.has(size):
+		return _ring_tex_cache[size]
 	var img = Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	var cx = size / 2
@@ -41,7 +45,9 @@ func _make_ring_texture(size: int) -> Texture2D:
 			if dist <= outer_r and dist >= inner_r:
 				var alpha = 1.0 - abs(dist - (outer_r - 2)) / 4.0
 				img.set_pixel(x, y, Color(1, 0.5, 0.1, alpha * 0.6))
-	return ImageTexture.create_from_image(img)
+	var tex = ImageTexture.create_from_image(img)
+	_ring_tex_cache[size] = tex
+	return tex
 
 
 func _attack() -> void:

@@ -91,7 +91,6 @@ func _pickup(player: Node2D) -> void:
 				player.add_shield(player.max_health * 0.3)
 			EventBus.item_picked_up.emit("shield", {"amount": player.max_health * 0.3})
 		"buff_damage":
-			# 由Main处理buff
 			EventBus.item_picked_up.emit("buff_damage", {"duration": 8.0, "effect": 0.5})
 		"buff_speed":
 			EventBus.item_picked_up.emit("buff_speed", {"duration": 8.0, "effect": 0.4})
@@ -107,8 +106,37 @@ func _pickup(player: Node2D) -> void:
 			GameState.max_revive_count += 1
 			EventBus.item_picked_up.emit("feather", {"max_revives": GameState.max_revive_count})
 
+	# 拾取动画
+	_pickup_fx()
+	# 拾取音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_pickup()
+
+
+func _pickup_fx() -> void:
+	# 小粒子爆散
+	if SaveSystem.get_setting("particles"):
+		for i in range(4):
+			var p = ColorRect.new()
+			p.color = sprite.modulate
+			p.color.a = 0.8
+			p.size = Vector2(3, 3)
+			p.global_position = global_position + Vector2(randf_range(-8, 8), randf_range(-8, 8))
+			get_tree().current_scene.add_child(p)
+			var t = create_tween()
+			t.set_parallel(true)
+			t.tween_property(p, "global_position", global_position + Vector2(randf_range(-15, 15), randf_range(-20, -5)), 0.2)
+			t.tween_property(p, "color:a", 0.0, 0.2)
+			t.tween_callback(p.queue_free)
+
+	# 缩放消失（释放由 tween 回调触发，避免双重释放）
+	var t2 = create_tween()
+	t2.set_parallel(true)
+	t2.tween_property(self, "scale", Vector2(1.8, 1.8), 0.1).set_ease(Tween.EASE_OUT)
+	t2.tween_property(self, "modulate:a", 0.0, 0.1)
+	t2.chain().tween_callback(_release_to_pool)
+
 	EventBus.screen_shake_requested.emit(1.0, 0.05)
-	_release_to_pool()
 
 
 func _release_to_pool() -> void:
@@ -140,6 +168,8 @@ func reset_for_pool() -> void:
 	_arc_offset = 0.0
 	_mergeable = true
 	_set_color_by_type()
+	scale = Vector2.ONE
+	modulate = Color.WHITE
 	visible = true
 	process_mode = Node.PROCESS_MODE_INHERIT
 	if get_child_count() < 2:

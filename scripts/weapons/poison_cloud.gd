@@ -18,7 +18,8 @@ func _initialize() -> void:
 
 
 func _attack() -> void:
-	var pos := global_position
+	# 使用父节点（玩家）的世界坐标，而非自身局部坐标
+	var pos := get_parent().global_position if get_parent() else global_position
 	if target and is_instance_valid(target):
 		pos = target.global_position
 	_spawn_field(pos)

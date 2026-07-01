@@ -95,6 +95,7 @@ func _physics_process(_delta: float) -> void:
 		velocity = velocity.move_toward(Vector2.ZERO, spd * 5.0)
 
 	move_and_slide()
+	_clamp_to_boundary()
 	EventBus.player_moved.emit(global_position)
 	_magnetize_nearby_gems(_delta)
 	_spawn_trail(_delta)
@@ -178,6 +179,7 @@ func take_damage(amount: float) -> void:
 	if remaining > 0:
 		var actual_damage = max(1.0, remaining - GameState.armor)
 		current_health -= actual_damage
+		GameState.total_damage_taken += actual_damage
 
 	if current_health <= 0:
 		_die()
@@ -234,7 +236,11 @@ func _shield_gate_push() -> void:
 	t.tween_callback(ring.queue_free)
 
 
+static var _push_ring_tex: ImageTexture = null
+
 func _make_push_ring_tex() -> Texture2D:
+	if _push_ring_tex:
+		return _push_ring_tex
 	var size := 64
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -244,7 +250,8 @@ func _make_push_ring_tex() -> Texture2D:
 			var d := Vector2(x - c, y - c).length()
 			if d <= c - 1 and d >= c - 4:
 				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, 0.8))
-	return ImageTexture.create_from_image(img)
+	_push_ring_tex = ImageTexture.create_from_image(img)
+	return _push_ring_tex
 
 
 func _die() -> void:
@@ -336,3 +343,10 @@ func set_leveling_state(active: bool) -> void:
 		state = PlayerState.LEVELING
 	else:
 		state = PlayerState.NORMAL
+
+
+func _clamp_to_boundary() -> void:
+	var boundary_radius: float = 780.0
+	var dist = global_position.length()
+	if dist > boundary_radius:
+		global_position = global_position.normalized() * boundary_radius

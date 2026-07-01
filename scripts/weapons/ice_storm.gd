@@ -37,7 +37,11 @@ func _build_crystals() -> void:
 		_crystals.append(s)
 
 
+static var _crystal_tex: ImageTexture = null
+
 func _make_crystal_tex() -> Texture2D:
+	if _crystal_tex:
+		return _crystal_tex
 	var size := 16
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -47,7 +51,8 @@ func _make_crystal_tex() -> Texture2D:
 			var d := Vector2(x - c, y - c).length()
 			if d <= c - 1:
 				img.set_pixel(x, y, Color(0.5, 0.8, 1.0, clampf(1.0 - d / float(c) + 0.3, 0.0, 1.0)))
-	return ImageTexture.create_from_image(img)
+	_crystal_tex = ImageTexture.create_from_image(img)
+	return _crystal_tex
 
 
 # 冰晶风暴用自定义环绕逻辑，不走 base 的 attack_timer

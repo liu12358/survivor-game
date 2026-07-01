@@ -179,6 +179,8 @@ func _shoot_spiral() -> void:
 		_spawn_projectile(dir, 220.0, 10.0, Color(1.0, 0.1, 0.1))
 
 
+static var _projectile_tex: ImageTexture = null
+
 func _spawn_projectile(dir: Vector2, speed: float, dmg: float, col: Color) -> void:
 	var proj = Area2D.new()
 	proj.collision_layer = 8
@@ -190,10 +192,12 @@ func _spawn_projectile(dir: Vector2, speed: float, dmg: float, col: Color) -> vo
 	proj.add_child(pshape)
 
 	var psprite = Sprite2D.new()
-	var img = Image.create(16, 16, false, Image.FORMAT_RGBA8)
-	img.fill(col)
-	var tex = ImageTexture.create_from_image(img)
-	psprite.texture = tex
+	if not _projectile_tex:
+		var img = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+		img.fill(Color.WHITE)
+		_projectile_tex = ImageTexture.create_from_image(img)
+	psprite.texture = _projectile_tex
+	psprite.modulate = col
 	psprite.scale = Vector2(0.6, 0.6)
 	proj.add_child(psprite)
 

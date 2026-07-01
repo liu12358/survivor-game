@@ -35,10 +35,15 @@ func _build_blades() -> void:
 		_blades.append(s)
 
 
+static var _blade_tex: ImageTexture = null
+
 func _make_blade_tex() -> Texture2D:
+	if _blade_tex:
+		return _blade_tex
 	var img := Image.create(6, 22, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0.85, 0.92, 1.0, 0.95))
-	return ImageTexture.create_from_image(img)
+	_blade_tex = ImageTexture.create_from_image(img)
+	return _blade_tex
 
 
 func _process(delta: float) -> void:
