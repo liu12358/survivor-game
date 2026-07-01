@@ -32,10 +32,9 @@ func _ready() -> void:
 	_build()
 
 
-func _process(_delta: float) -> void:
-	if Input.is_key_pressed(KEY_F3) and not _f3_pressed:
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.keycode == KEY_F3 and event.pressed and not event.echo:
 		_toggle_panel()
-	_f3_pressed = Input.is_key_pressed(KEY_F3)
 
 
 func _toggle_panel() -> void:

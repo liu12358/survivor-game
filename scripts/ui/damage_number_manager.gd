@@ -39,10 +39,14 @@ func _on_damage_number(pos: Vector2, amount: float, is_crit: bool, dmg_type: int
 	var now := Time.get_ticks_msec() / 1000.0
 
 	if entry and (now - entry.timer) < CLUSTER_WINDOW:
-		# 合并：累加数值 + 触发缩放抖动
-		entry.amount += int(amount)
-		entry.timer = now
-		entry.label.text = "%d" % int(entry.amount)
+		if not is_instance_valid(entry.label):
+			_cluster_cache.erase(key)
+			entry = null
+		else:
+			# 合并：累加数值 + 触发缩放抖动
+			entry.amount += int(amount)
+			entry.timer = now
+			entry.label.text = "%d" % int(entry.amount)
 		if is_crit and not entry.is_crit:
 			entry.is_crit = true
 			_set_crit_style(entry.label)
@@ -51,6 +55,7 @@ func _on_damage_number(pos: Vector2, amount: float, is_crit: bool, dmg_type: int
 		pulse.tween_property(entry.label, "scale", Vector2(1.35, 1.35), 0.04)
 		pulse.tween_property(entry.label, "scale", Vector2(1.0, 1.0), 0.08)
 		return
+	# entry 为 null 或已过期 → 走下方创建新数字逻辑
 
 	# 创建新数字
 	var label = Label.new()

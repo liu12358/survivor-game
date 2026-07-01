@@ -24,6 +24,8 @@ var _low_hp_tween: Tween
 var _exp_pulse_tween: Tween
 var _enemy_count_timer: float = 0.0
 var _streak_label: Label
+var _weapon_labels: Dictionary = {}  # {weapon_id: Label}
+var _passive_labels: Dictionary = {}  # {passive_id: Label}
 
 
 func _ready() -> void:
@@ -459,30 +461,66 @@ func _on_upgrade_selected(_id: String) -> void:
 func _refresh_equip() -> void:
 	if not equip_box:
 		return
-	for c in equip_box.get_children():
-		c.queue_free()
-	var wrow = HBoxContainer.new()
-	wrow.add_theme_constant_override("separation", 6)
-	wrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# ─── 武器行（复用 Label，避免每次升级销毁重建）───
+	var wrow: HBoxContainer = equip_box.get_node_or_null("WeaponRow") as HBoxContainer
+	if not wrow:
+		wrow = HBoxContainer.new()
+		wrow.name = "WeaponRow"
+		wrow.add_theme_constant_override("separation", 6)
+		wrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		equip_box.add_child(wrow)
+
+	var seen_weapons: Array[String] = []
 	for wid in GameState.active_weapons:
-		var lbl = Label.new()
+		seen_weapons.append(wid)
+		var lbl: Label = _weapon_labels.get(wid)
+		if not lbl or not is_instance_valid(lbl):
+			lbl = Label.new()
+			lbl.add_theme_font_size_override("font_size", 16)
+			_weapon_labels[wid] = lbl
+			wrow.add_child(lbl)
 		var is_super = GameState.super_weapons.has(wid)
 		lbl.text = "%s%d%s" % [WEAPON_ICONS.get(wid, "⚔️"), int(GameState.active_weapons[wid]), ("★" if is_super else "")]
-		lbl.add_theme_font_size_override("font_size", 16)
-		if is_super:
-			lbl.modulate = Color(1.0, 0.85, 0.3)
-		wrow.add_child(lbl)
-	equip_box.add_child(wrow)
-	var prow = HBoxContainer.new()
-	prow.add_theme_constant_override("separation", 6)
-	prow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lbl.modulate = Color(1.0, 0.85, 0.3) if is_super else Color.WHITE
+		lbl.visible = true
+
+	# 移除已不在 active_weapons 中的标签
+	for wid in _weapon_labels.keys():
+		if not seen_weapons.has(wid):
+			var lbl = _weapon_labels[wid]
+			if is_instance_valid(lbl):
+				lbl.queue_free()
+			_weapon_labels.erase(wid)
+
+	# ─── 被动行（同理）───
+	var prow: HBoxContainer = equip_box.get_node_or_null("PassiveRow") as HBoxContainer
+	if not prow:
+		prow = HBoxContainer.new()
+		prow.name = "PassiveRow"
+		prow.add_theme_constant_override("separation", 6)
+		prow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		equip_box.add_child(prow)
+
+	var seen_passives: Array[String] = []
 	for pid in GameState.active_passives:
-		var lbl = Label.new()
+		seen_passives.append(pid)
+		var lbl: Label = _passive_labels.get(pid)
+		if not lbl or not is_instance_valid(lbl):
+			lbl = Label.new()
+			lbl.add_theme_font_size_override("font_size", 13)
+			lbl.modulate = Color(0.8, 0.9, 1.0)
+			_passive_labels[pid] = lbl
+			prow.add_child(lbl)
 		lbl.text = "%s%d" % [PASSIVE_ICONS.get(pid, "·"), int(GameState.active_passives[pid])]
-		lbl.add_theme_font_size_override("font_size", 13)
-		lbl.modulate = Color(0.8, 0.9, 1.0)
-		prow.add_child(lbl)
-	equip_box.add_child(prow)
+		lbl.visible = true
+
+	for pid in _passive_labels.keys():
+		if not seen_passives.has(pid):
+			var lbl = _passive_labels[pid]
+			if is_instance_valid(lbl):
+				lbl.queue_free()
+			_passive_labels.erase(pid)
 
 
 func _add_minimap() -> void:

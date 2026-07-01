@@ -31,22 +31,7 @@ func _create_ui() -> void:
 	_panel.custom_minimum_size = Vector2(320, 420)
 	center.add_child(_panel)
 
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.15, 0.20, 0.98)
-	style.border_width_left = 2
-	style.border_width_right = 2
-	style.border_width_top = 2
-	style.border_width_bottom = 2
-	style.border_color = Color(0.4, 0.5, 0.7, 1.0)
-	style.corner_radius_top_left = 12
-	style.corner_radius_top_right = 12
-	style.corner_radius_bottom_left = 12
-	style.corner_radius_bottom_right = 12
-	style.content_margin_left = 24
-	style.content_margin_right = 24
-	style.content_margin_top = 24
-	style.content_margin_bottom = 24
-	_panel.add_theme_stylebox_override("panel", style)
+	_panel.add_theme_stylebox_override("panel", GameState.get_shared_panel_style())
 
 	var vbox = VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)

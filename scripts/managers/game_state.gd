@@ -370,3 +370,26 @@ func get_effective_lifesteal() -> float:
 func get_effective_range_mult() -> float:
 	"""计算攻击范围倍率"""
 	return effective_range_mult()  # 已有实现，保持兼容
+
+
+# ─── 共享 UI 样式（避免每个面板重复创建相同的 StyleBoxFlat） ───
+static var _shared_panel_style: StyleBoxFlat = null
+
+func get_shared_panel_style() -> StyleBoxFlat:
+	if not _shared_panel_style:
+		_shared_panel_style = StyleBoxFlat.new()
+		_shared_panel_style.bg_color = Color(0.12, 0.15, 0.20, 0.98)
+		_shared_panel_style.border_width_left = 2
+		_shared_panel_style.border_width_right = 2
+		_shared_panel_style.border_width_top = 2
+		_shared_panel_style.border_width_bottom = 2
+		_shared_panel_style.border_color = Color(0.4, 0.5, 0.7, 1.0)
+		_shared_panel_style.corner_radius_top_left = 12
+		_shared_panel_style.corner_radius_top_right = 12
+		_shared_panel_style.corner_radius_bottom_left = 12
+		_shared_panel_style.corner_radius_bottom_right = 12
+		_shared_panel_style.content_margin_left = 24
+		_shared_panel_style.content_margin_right = 24
+		_shared_panel_style.content_margin_top = 24
+		_shared_panel_style.content_margin_bottom = 24
+	return _shared_panel_style

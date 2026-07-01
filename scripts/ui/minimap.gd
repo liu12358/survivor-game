@@ -37,7 +37,7 @@ func _process(delta: float) -> void:
 	if _update_timer >= UPDATE_INTERVAL:
 		_update_timer = 0.0
 		_cache_positions()
-	queue_redraw()
+		queue_redraw()
 
 
 func _cache_positions() -> void:

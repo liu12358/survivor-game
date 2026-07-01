@@ -53,7 +53,12 @@ func _make_circle(size: int, col: Color) -> TextureRect:
 	return tr
 
 
+static var _tex_cache: Dictionary = {}  # {"size_rgba": Texture2D}
+
 func _circle_tex(size: int, col: Color) -> Texture2D:
+	var key := "%d_%d_%d_%d_%d" % [size, int(col.r * 255), int(col.g * 255), int(col.b * 255), int(col.a * 255)]
+	if _tex_cache.has(key):
+		return _tex_cache[key]
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	var c := size / 2
@@ -61,7 +66,9 @@ func _circle_tex(size: int, col: Color) -> Texture2D:
 		for y in range(size):
 			if Vector2(x - c, y - c).length() <= c - 1:
 				img.set_pixel(x, y, col)
-	return ImageTexture.create_from_image(img)
+	var tex := ImageTexture.create_from_image(img)
+	_tex_cache[key] = tex
+	return tex
 
 
 func _input(event: InputEvent) -> void:

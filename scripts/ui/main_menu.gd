@@ -72,11 +72,11 @@ func _create_ui() -> void:
 	center.add_child(vbox)
 
 	var level_btn = _make_button("🏰 关卡模式 — 存活 15 分钟", Color(0.2, 0.5, 0.8))
-	level_btn.pressed.connect(func(): _on_start("level"))
+	level_btn.pressed.connect(func(): _start_game("level"))
 	vbox.add_child(level_btn)
 
 	var inf_btn = _make_button("♾️ 无尽模式 — 无限挑战", Color(0.7, 0.3, 0.6))
-	inf_btn.pressed.connect(func(): _on_start("infinite"))
+	inf_btn.pressed.connect(func(): _start_game("infinite"))
 	vbox.add_child(inf_btn)
 
 	var settings_toggle = _make_button("⚙️ 局前设置 ▼", Color(0.3, 0.4, 0.5))
@@ -292,7 +292,11 @@ func _make_button(text: String, color: Color) -> Button:
 	return btn
 
 
-func _on_start(mode: String = "level") -> void:
+func _start_game(mode: String = "level") -> void:
+	# 停止标题光效循环 tween，避免切换场景后仍在后台运行
+	if gt:
+		gt.kill()
+	gt = null
 	GameState.current_mode = mode
 	SaveSystem.apply_meta_to_gamestate()
 	get_tree().change_scene_to_file("res://scenes/levels/main.tscn")
