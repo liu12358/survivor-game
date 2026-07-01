@@ -215,8 +215,8 @@ func _generate_bg_texture() -> void:
 		var pos = center + Vector2(cos(angle), sin(angle)) * dist
 		var brick_size = rng.randf_range(20, 40)
 		var shade = rng.randf_range(0.14, 0.20)
-		var rect := Rect2(pos.x - brick_size / 2, pos.y - brick_size / 2, brick_size, brick_size)
-		img.fill_rect(rect, Color(shade, shade * 0.9, shade * 1.1))
+		_fill_rect_on_img(img, Rect2(pos.x - brick_size / 2, pos.y - brick_size / 2, brick_size, brick_size),
+			Color(shade, shade * 0.9, shade * 1.1))
 
 	# 4. 火把光点
 	for j in range(15):
@@ -230,6 +230,19 @@ func _generate_bg_texture() -> void:
 	_fill_circle_on_img(img, center, 50, Color(0.18, 0.16, 0.22, 0.3))
 
 	_bg_texture = ImageTexture.create_from_image(img)
+
+
+# 优化的矩形填充：逐像素（仅用于小矩形，性能可接受）
+func _fill_rect_on_img(img: Image, rect: Rect2, color: Color) -> void:
+	var x0 := int(rect.position.x)
+	var y0 := int(rect.position.y)
+	var x1 := int(rect.end.x)
+	var y1 := int(rect.end.y)
+	var w := img.get_width()
+	var h := img.get_height()
+	for y in range(maxi(0, y0), mini(h, y1)):
+		for x in range(maxi(0, x0), mini(w, x1)):
+			img.set_pixel(x, y, color)
 
 
 # 优化的圆形填充：用水平扫描线替代全图遍历，复杂度 O(r²) 而非 O(W*H)
