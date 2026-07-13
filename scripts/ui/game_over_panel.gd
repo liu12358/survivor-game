@@ -100,6 +100,10 @@ func _show_game_over(reason: String, stats: Dictionary) -> void:
 	var survival = stats.get("survival_time", GameState.survival_time)
 	var gold = stats.get("gold", GameState.gold_earned)
 	var level = stats.get("level", GameState.player_level)
+	var healing = stats.get("healing", GameState.total_healing_received)
+	var max_streak = stats.get("max_streak", GameState.max_kill_streak)
+	var character = stats.get("character", GameState.current_character)
+	var super_weapons = stats.get("super_weapons", GameState.super_weapons)
 
 	match reason:
 		"victory":
@@ -124,6 +128,13 @@ func _show_game_over(reason: String, stats: Dictionary) -> void:
 	_add_stat("击杀数", "%d 只" % kills)
 	_add_stat("玩家等级", "Lv.%d" % level)
 	_add_stat("获得金币", "%d 💰" % gold)
+	_add_stat("总治疗量", "%d ❤️" % int(healing))
+	_add_stat("最高连杀", "%d 连" % max_streak)
+
+	# 角色
+	var char_names = {"mage": "🧙 法师", "argo": "⚔️ 剑圣", "selene": "🏹 弓手", "little_fried_egg": "🍳 小煎蛋"}
+	_add_stat("角色", char_names.get(character, "🧙 法师"))
+	_add_stat("超武解锁", "%d 把" % super_weapons.size())
 
 	# 战斗统计
 	var dmg_dealt = GameState.total_damage_dealt

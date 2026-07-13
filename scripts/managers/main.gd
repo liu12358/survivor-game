@@ -904,6 +904,10 @@ func _game_victory() -> void:
 		"survival_time": _total_game_time,
 		"gold": GameState.gold_earned,
 		"level": GameState.player_level,
+		"healing": GameState.total_healing_received,
+		"max_streak": GameState.max_kill_streak,
+		"character": GameState.current_character,
+		"super_weapons": GameState.super_weapons.duplicate(),
 		"reason": "victory"
 	}
 	SaveSystem.add_game_result(GameState.gold_earned, GameState.kills, _total_game_time)
@@ -944,6 +948,10 @@ func _game_defeat() -> void:
 		"survival_time": _total_game_time,
 		"gold": GameState.gold_earned,
 		"level": GameState.player_level,
+		"healing": GameState.total_healing_received,
+		"max_streak": GameState.max_kill_streak,
+		"character": GameState.current_character,
+		"super_weapons": GameState.super_weapons.duplicate(),
 		"reason": "death"
 	}
 	SaveSystem.add_game_result(GameState.gold_earned, GameState.kills, _total_game_time)

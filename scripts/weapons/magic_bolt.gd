@@ -40,7 +40,6 @@ func _shoot_projectile() -> void:
 	proj.crit_chance = get_total_crit_chance()
 	proj.crit_mult = get_total_crit_mult()
 	proj.lifesteal = get_total_lifesteal()
-	proj.enable_split = level >= max_level
 	if proj.has_method("set_projectile_color"):
 		proj.set_projectile_color(Color(0.31, 0.76, 0.98))
 	if proj.has_method("set_projectile_scale"):

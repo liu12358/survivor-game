@@ -60,8 +60,8 @@ func _draw() -> void:
 	var player_pos: Vector2 = _player_node.global_position
 
 	# 限制最多绘制100个敌人点，避免性能问题
-	var max_draw := mini(_enemy_nodes.size(), 100)
-	var step := maxi(1, _enemy_nodes.size() / max_draw)
+	var max_draw := min(_enemy_nodes.size(), 100)
+	var step := max(1, _enemy_nodes.size() / max_draw)
 	var idx := 0
 	for i in range(0, _enemy_nodes.size(), step):
 		if idx >= max_draw:

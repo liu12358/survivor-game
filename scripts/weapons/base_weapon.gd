@@ -189,6 +189,8 @@ func remove_affixes() -> void:
 	affixes.clear()
 	crit_chance = 0.0
 	lifesteal_local = 0.0
+	is_super_weapon = false
+	super_weapon_name = ""
 
 
 # ─── 暴击 / 吸血结算（D-5：全局基础 + 武器级词条）───

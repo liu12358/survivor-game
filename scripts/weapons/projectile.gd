@@ -10,6 +10,7 @@ var remaining_pen: int = 0
 var lifetime: float = 3.0
 var _time_alive: float = 0.0
 var enable_split: bool = false
+var _split_consumed: bool = false
 var crit_chance: float = 0.0
 var crit_mult: float = 1.5
 var lifesteal: float = 0.0
@@ -86,7 +87,7 @@ func _on_body_entered(body: Node2D) -> void:
 
 	# 穿透递减，耗尽则销毁
 	remaining_pen -= 1
-	if remaining_pen < 0:
+	if remaining_pen <= 0:
 		_deactivate()
 
 

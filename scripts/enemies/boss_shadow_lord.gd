@@ -105,9 +105,11 @@ func take_damage(amount: float, _is_crit: bool = false) -> void:
 func _flash() -> void:
 	sprite.modulate = Color(3, 3, 3)
 	if hurt_timer:
+		hurt_timer.stop()
+		if hurt_timer.timeout.is_connected(_on_flash_end):
+			hurt_timer.timeout.disconnect(_on_flash_end)
+		hurt_timer.timeout.connect(_on_flash_end)
 		hurt_timer.start(0.1)
-		if not hurt_timer.timeout.is_connected(_on_flash_end):
-			hurt_timer.timeout.connect(_on_flash_end)
 
 
 func _on_flash_end() -> void:
@@ -184,9 +186,13 @@ func _shoot_spiral() -> void:
 static var _projectile_tex: ImageTexture = null
 
 func _spawn_projectile(dir: Vector2, speed: float, dmg: float, col: Color) -> void:
-	var proj = Area2D.new()
+	var proj = BossProjectile.new()
+	proj.direction = dir
+	proj.speed = speed
+	proj.damage = dmg
 	proj.collision_layer = 8
 	proj.collision_mask = 1
+
 	var pshape = CollisionShape2D.new()
 	var circle = CircleShape2D.new()
 	circle.radius = 8.0
@@ -201,31 +207,11 @@ func _spawn_projectile(dir: Vector2, speed: float, dmg: float, col: Color) -> vo
 	psprite.texture = _projectile_tex
 	psprite.modulate = col
 	psprite.scale = Vector2(0.6, 0.6)
+	psprite.name = "Sprite2D"
 	proj.add_child(psprite)
 
 	proj.global_position = global_position
 	get_tree().current_scene.add_child(proj)
-
-	# 碰撞检测
-	proj.body_entered.connect(func(body):
-		if body.is_in_group("player"):
-			if body.has_method("take_damage"):
-				body.take_damage(dmg)
-			EventBus.screen_shake_requested.emit(2.0, 0.1)
-			proj.queue_free()
-	)
-
-	# 移动（用 global_position，因为 proj 已 add_child 到 current_scene，
-	# 但 boss 自身可能有位移/缩放，用 global 避免局部坐标偏差）
-	var move_tween = create_tween()
-	move_tween.tween_property(proj, "global_position", proj.global_position + dir * 700.0, 700.0 / speed)
-	move_tween.tween_callback(proj.queue_free)
-
-	# 5秒后强制销毁
-	get_tree().create_timer(5.0).timeout.connect(func():
-		if is_instance_valid(proj):
-			proj.queue_free()
-	)
 
 
 func _summon_minions() -> void:

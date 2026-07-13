@@ -43,7 +43,7 @@ const WEAPON_INFO = {
 	"piercing_arrow":   {"name": "穿透箭", "icon": "🎯"},
 	"lava_zone":        {"name": "岩浆", "icon": "🌋"},
 }
-const ALL_WEAPONS = ["magic_bolt", "fire_ring", "lightning_chain", "ice_storm", "holy_spear", "poison_cloud", "lava_zone"]
+const ALL_WEAPONS = ["magic_bolt", "fire_ring", "lightning_chain", "ice_storm", "holy_spear", "poison_cloud", "sword_orbit", "piercing_arrow", "lava_zone"]
 
 # ─── 词条定义 ───
 # 普通词条 15%概率

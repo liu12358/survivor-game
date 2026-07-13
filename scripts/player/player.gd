@@ -276,7 +276,7 @@ func _shield_gate_push() -> void:
 	EventBus.screen_shake_requested.emit(5.0, 0.15)
 	# 破盾音效
 	if has_node("/root/AudioManager"):
-		get_node("/root/AudioManager").play_sfx_player_hurt()
+		get_node("/root/AudioManager").play_sfx_shield_gate()
 
 
 static var _push_ring_tex: ImageTexture = null

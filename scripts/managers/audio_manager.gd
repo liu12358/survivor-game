@@ -125,10 +125,14 @@ func play_sfx_victory() -> void:
 
 # 暂复用已有音效池，未来可替换为独立音效
 func play_sfx_boss_die() -> void:
-	_play_random_sfx("boss_spawn")
+	_play_random_sfx("kill")
 
 func play_sfx_player_hurt() -> void:
 	_play_random_sfx("hit")
+
+
+func play_sfx_shield_gate() -> void:
+	_play_random_sfx("hit")  # 暂复用 hit 音效，未来可替换为独立音效
 
 func play_sfx_player_die() -> void:
 	_play_random_sfx("kill")

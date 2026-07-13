@@ -33,7 +33,12 @@ func _attack() -> void:
 	proj.crit_mult = get_total_crit_mult()
 	proj.lifesteal = get_total_lifesteal()
 	if proj.has_method("set_projectile_color"):
-		proj.set_projectile_color(Color(0.6, 1.0, 0.6))
+		if is_super_weapon:
+			proj.set_projectile_color(Color(1.0, 0.95, 0.5))
+		else:
+			proj.set_projectile_color(Color(0.6, 1.0, 0.6))
+	if proj.has_method("set_projectile_scale"):
+		proj.set_projectile_scale(2.0 if is_super_weapon else 1.0)
 	proj.activate()
 
 
