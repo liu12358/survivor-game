@@ -78,12 +78,11 @@ func _init_player() -> void:
 	ring.texture = _make_push_ring_tex()
 	ring.scale = Vector2(2.5, 2.5)
 	ring.z_index = -1
-	ring.visible = false
+	ring.modulate.a = 0.7
 	add_child(ring)
 	_spawn_visual = create_tween().set_loops()
 	_spawn_visual.tween_property(ring, "modulate:a", 0.7, 0.8)
 	_spawn_visual.tween_property(ring, "modulate:a", 0.2, 0.8)
-	_spawn_visual.set_paused(true)
 	_spawn_ring = ring
 
 
@@ -109,10 +108,15 @@ func _physics_process(_delta: float) -> void:
 					pdir = jd
 		if pdir.length() > 0.2:
 			_spawn_protected = false
+			# 淡出保护光环
 			if _spawn_ring:
-				_spawn_ring.visible = false
+				var fade := create_tween()
+				fade.tween_property(_spawn_ring, "modulate:a", 0.0, 0.3)
+				fade.tween_callback(func(): _spawn_ring.queue_free())
+				_spawn_ring = null
 			if _spawn_visual:
-				_spawn_visual.set_paused(true)
+				_spawn_visual.kill()
+				_spawn_visual = null
 		else:
 			global_position = Vector2.ZERO
 			velocity = Vector2.ZERO
@@ -268,6 +272,11 @@ func _shield_gate_push() -> void:
 	t.tween_property(ring, "scale", Vector2(2.0, 2.0), 0.15)
 	t.parallel().tween_property(ring, "modulate:a", 0.0, 0.15)
 	t.tween_callback(ring.queue_free)
+	# 破盾震动反馈
+	EventBus.screen_shake_requested.emit(5.0, 0.15)
+	# 破盾音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_player_hurt()
 
 
 static var _push_ring_tex: ImageTexture = null
@@ -310,7 +319,9 @@ func _die() -> void:
 func heal(amount: float) -> void:
 	var old = current_health
 	current_health = min(current_health + amount, max_health)
-	EventBus.player_healed.emit(current_health - old, current_health)
+	var actual = current_health - old
+	GameState.total_healing_received += actual
+	EventBus.player_healed.emit(actual, current_health)
 
 # ─── 护盾 ───
 

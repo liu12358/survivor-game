@@ -74,7 +74,6 @@ func _apply_level_stats() -> void:
 			base_damage = 40.0
 			attack_speed = 0.6
 			penetration = 5
-			aoe_radius = 100.0
 
 
 func can_synthesize_super() -> bool:

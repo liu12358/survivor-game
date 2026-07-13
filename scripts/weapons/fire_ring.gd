@@ -17,6 +17,16 @@ func _initialize() -> void:
 
 func _requires_target() -> bool:
 	return false  # AOE 环绕，无需目标
+
+
+func _initialize() -> void:
+	weapon_id = "fire_ring"
+	weapon_name = "烈焰环"
+	base_damage = 8.0
+	attack_speed = 0.5
+	range = 80.0
+	aoe_radius = 80.0
+	target_range = 80.0
 	max_level = 8
 
 	_ring_visual()

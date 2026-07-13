@@ -27,6 +27,8 @@ const KILL_STREAK_THRESHOLDS: Array = [10, 25, 50, 100, 200]  # 连杀阈值
 # 战斗统计
 var total_damage_dealt: float = 0.0     # 总伤害输出
 var total_damage_taken: float = 0.0     # 总受伤量
+var total_healing_received: float = 0.0 # 总治疗量
+var max_kill_streak: int = 0            # 本局最高连杀
 var rng := RandomNumberGenerator.new()   # 统一随机源（种子复刻，P2-11）
 var is_custom_seed: bool = false
 var current_difficulty: String = "normal"
@@ -243,6 +245,8 @@ func reset_game_data() -> void:
 	kill_streak_bonus = 0.0
 	total_damage_dealt = 0.0
 	total_damage_taken = 0.0
+	total_healing_received = 0.0
+	max_kill_streak = 0
 	# 金手指 / 全局开关原位重置，避免上一局设置残留（Task 6）
 	max_revive_count = 1
 	cheat_godmode = false
@@ -255,6 +259,8 @@ func reset_game_data() -> void:
 func add_kill_streak() -> void:
 	kill_streak += 1
 	kill_streak_timer = KILL_STREAK_TIMEOUT
+	if kill_streak > max_kill_streak:
+		max_kill_streak = kill_streak
 	# 检查是否达到阈值
 	for threshold in KILL_STREAK_THRESHOLDS:
 		if kill_streak == threshold:

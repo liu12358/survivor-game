@@ -21,8 +21,15 @@ func _initialize() -> void:
 	z_index = 5
 
 
+func _requires_target() -> bool:
+	return false  # 闪电链可自动索敌，无需预先锁定
+
+
 func _attack() -> void:
+	# 无目标时自动索敌（闪电链可独立攻击）
 	if not target or not is_instance_valid(target):
+		target = _find_nearest_enemy([], global_position)
+	if not target:
 		return
 
 	var dmg := get_damage_with_bonus()

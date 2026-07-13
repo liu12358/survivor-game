@@ -395,7 +395,7 @@ func _process(delta: float) -> void:
 		return
 
 	_total_game_time += delta
-
+	GameState.survival_time = _total_game_time
 	# 连杀计时器
 	GameState.update_kill_streak(delta)
 

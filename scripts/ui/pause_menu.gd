@@ -8,6 +8,7 @@ var _is_paused: bool = false
 var _seed_label: Label
 var _weapon_label: Label
 var _passive_label: Label
+var _stats_label: Label
 var _pause_tween: Tween = null
 
 const _WEAPON_NAMES := {
@@ -96,6 +97,12 @@ func _create_ui() -> void:
 	_passive_label.add_theme_font_size_override("font_size", 12)
 	_passive_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(_passive_label)
+
+	# 战斗属性
+	_stats_label = Label.new()
+	_stats_label.add_theme_font_size_override("font_size", 11)
+	_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(_stats_label)
 
 	var build_sep2 = HSeparator.new()
 	vbox.add_child(build_sep2)
@@ -209,6 +216,22 @@ func _update_build_overview() -> void:
 		passives_text += "无"
 	_passive_label.text = passives_text
 
+	# 战斗属性
+	if _stats_label:
+		var dps_est = 0.0
+		for wid in GameState.active_weapons:
+			var weapon_node = _find_weapon_node(wid)
+			if weapon_node and weapon_node.has_method("get_damage_with_bonus"):
+				dps_est += weapon_node.get_damage_with_bonus() * weapon_node.attack_speed
+		_stats_label.text = "HP: %d/%d   armor: %d   speed: %.0f\ncrit: %.0f%%   lifesteal: %.0f%%   DPS: %.0f" % [
+			int(GameState.current_hp), int(GameState.max_hp),
+			int(GameState.get_effective_armor()),
+			GameState.get_effective_move_speed(),
+			GameState.get_effective_crit_chance() * 100,
+			GameState.get_effective_lifesteal() * 100,
+			dps_est
+		]
+
 
 func _on_resumed() -> void:
 	_is_paused = false
@@ -271,3 +294,13 @@ func _pause_now() -> void:
 	get_tree().paused = true
 	GameState.is_paused = true
 	EventBus.game_paused.emit()
+
+
+func _find_weapon_node(wid: String) -> Node:
+	var players = get_tree().get_nodes_in_group("player")
+	if players.size() == 0:
+		return null
+	for child in players[0].get_children():
+		if child.has_method("get") and child.get("weapon_id") == wid:
+			return child
+	return null

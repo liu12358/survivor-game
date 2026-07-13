@@ -30,6 +30,10 @@ var _enemy_count_timer: float = 0.0
 var _streak_label: Label
 var _weapon_labels: Dictionary = {}  # {weapon_id: Label}
 var _passive_labels: Dictionary = {}  # {passive_id: Label}
+var _dps_label: Label
+var _dps_timer: float = 0.0
+var _dps_damage: float = 0.0
+var _current_dps: float = 0.0
 
 
 func _ready() -> void:
@@ -50,6 +54,14 @@ func _process(_delta: float) -> void:
 		_enemy_count_timer = 0.0
 		var count = get_tree().get_nodes_in_group("enemy").size()
 		enemy_label.text = "怪物: %d" % count
+
+	# DPS 每秒计算一次
+	_dps_timer += _delta
+	if _dps_timer >= 1.0:
+		_dps_timer = 0.0
+		_current_dps = _dps_damage
+		_dps_damage = 0.0
+		_dps_label.text = "DPS: %.0f" % _current_dps
 
 
 func _create_ui() -> void:
@@ -199,6 +211,22 @@ func _create_ui() -> void:
 	enemy_label.modulate = Color(0.8, 0.6, 0.6)
 	right_panel.add_child(enemy_label)
 
+	# DPS 显示
+	_dps_label = Label.new()
+	_dps_label.text = "DPS: 0"
+	_dps_label.add_theme_font_size_override("font_size", 13)
+	_dps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_dps_label.modulate = Color(1.0, 0.85, 0.4)
+	right_panel.add_child(_dps_label)
+
+	# ESC 暂停提示
+	var esc_hint = Label.new()
+	esc_hint.text = "ESC 暂停"
+	esc_hint.add_theme_font_size_override("font_size", 10)
+	esc_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	esc_hint.modulate = Color(0.4, 0.45, 0.55)
+	right_panel.add_child(esc_hint)
+
 	# ─── 连杀提示（居中顶部，默认隐藏）───
 	_streak_label = Label.new()
 	_streak_label.text = ""
@@ -285,11 +313,13 @@ func _connect_signals() -> void:
 	EventBus.boss_spawned.connect(_on_boss_spawned)
 	EventBus.boss_hp_changed.connect(_on_boss_hp_changed)
 	EventBus.boss_killed.connect(_on_boss_killed)
+	EventBus.boss_phase_changed.connect(_on_boss_phase_changed)
 	EventBus.achievement_unlocked.connect(_on_achievement)
 	EventBus.game_started.connect(_update_all)     # 开局/重开后刷新全部显示
 	EventBus.player_revived.connect(_update_all)    # 复活后刷新血量/等级
 	EventBus.upgrade_selected.connect(_on_upgrade_selected)  # 升级后刷新装备栏
 	EventBus.streak_reached.connect(_on_streak_reached)
+	EventBus.enemy_damaged.connect(_on_enemy_damaged_for_dps)
 
 
 # ─── 信号处理 ───
@@ -460,6 +490,17 @@ func _on_boss_killed() -> void:
 		_boss_bar_tween = create_tween()
 		_boss_bar_tween.tween_property(bb, "modulate:a", 0.0, 0.2)
 		_boss_bar_tween.tween_callback(func(): bb.visible = false)
+
+
+func _on_boss_phase_changed(phase: int) -> void:
+	if not boss_name_label:
+		return
+	var names = {1: "👑 暗影领主", 2: "👑 暗影领主 · 深渊觉醒", 3: "👑 暗影领主 · 末日审判"}
+	boss_name_label.text = names.get(phase, "👑 暗影领主")
+
+
+func _on_enemy_damaged_for_dps(_enemy: Node2D, amount: float, _is_crit: bool) -> void:
+	_dps_damage += amount
 
 
 func _on_achievement(id: String) -> void:
