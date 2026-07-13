@@ -196,15 +196,17 @@ func _chase_charge(delta: float, to_player: Vector2) -> void:
 
 
 func _clamp_to_boundary() -> void:
-	var boundary_radius: float = 780.0
+	var cfg = GameState.get_current_map_config()
+	var boundary_radius: float = float(cfg.get("radius", 800.0))
 	var dist = global_position.length()
-	if dist > boundary_radius:
+	if dist > boundary_radius - 20.0:
 		var push_dir = -global_position.normalized()
 		velocity += push_dir * move_speed * 2.0
 
 
 func _clamp_to_boundary_after_slide() -> void:
-	var boundary_radius: float = 800.0
+	var cfg = GameState.get_current_map_config()
+	var boundary_radius: float = float(cfg.get("radius", 800.0))
 	var dist = global_position.length()
 	if dist > boundary_radius:
 		global_position = global_position.normalized() * boundary_radius
@@ -386,6 +388,8 @@ func _die() -> void:
 		EventBus.elite_killed.emit(global_position, {"affix": elite_affix, "exp_bonus": exp_value})
 
 	remove_from_group("enemy")
+	# 敌人离组后刷新缓存
+	GameState.invalidate_group_cache()
 
 	# 死亡动画：缩小+淡出
 	if _death_tween and _death_tween.is_valid():

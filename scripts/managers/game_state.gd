@@ -292,7 +292,7 @@ func recalc_stats() -> void:
 	armor = meta_armor_bonus * 1.0 + int(active_passives.get("armor", 0)) * 2.0 + affix_armor
 	exp_bonus = meta_exp_bonus * 0.03 + int(active_passives.get("exp_bonus", 0)) * 0.20 + affix_exp_bonus
 	damage_bonus = meta_damage_bonus * 0.03 + affix_damage_bonus
-	crit_chance = min(0.60, int(active_passives.get("crit", 0)) * 0.05 + char_crit_bonus)
+	crit_chance = int(active_passives.get("crit", 0)) * 0.05 + char_crit_bonus
 	lifesteal = int(active_passives.get("lifesteal", 0)) * 0.03 + affix_lifesteal
 	drop_rate = int(active_passives.get("luck", 0)) * 0.10
 

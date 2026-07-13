@@ -25,6 +25,10 @@ func _initialize() -> void:
 	_build_crystals()
 
 
+func _requires_target() -> bool:
+	return false  # AOE 环绕冰晶，无需目标
+
+
 func _build_crystals() -> void:
 	for c in _crystals:
 		if is_instance_valid(c):

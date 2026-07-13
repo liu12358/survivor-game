@@ -41,10 +41,12 @@ var is_stunned: bool = false
 var _trail_timer: float = 0.0
 var _magnet_pulse: float = 0.0
 
-# 死亡慢动作 Tween 引用：重复死亡时先 kill 旧 tween，避免回调提前触发（Task 40）
+# 死亡慢动作 Tween 引用：重复死亡时先 kill 旧 tween，避免旧回调把 time_scale 提前归位（Task 40）
 var _death_tween: Tween = null
 var _slow_tween: Tween = null
 var _stun_tween: Tween = null
+var _spawn_visual: Tween = null            # 开局保护视觉 Tween
+var _spawn_ring: Sprite2D = null           # 开局保护光环
 
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var hurt_timer: Timer = $HurtTimer
@@ -71,6 +73,19 @@ func _init_player() -> void:
 	gt.tween_property(glow, "modulate:a", 0.6, 1.1).set_trans(Tween.TRANS_SINE)
 	gt.tween_property(glow, "modulate:a", 0.28, 1.1).set_trans(Tween.TRANS_SINE)
 
+	# 开局保护视觉：脚下脉冲光环
+	var ring := Sprite2D.new()
+	ring.texture = _make_push_ring_tex()
+	ring.scale = Vector2(2.5, 2.5)
+	ring.z_index = -1
+	ring.visible = false
+	add_child(ring)
+	_spawn_visual = create_tween().set_loops()
+	_spawn_visual.tween_property(ring, "modulate:a", 0.7, 0.8)
+	_spawn_visual.tween_property(ring, "modulate:a", 0.2, 0.8)
+	_spawn_visual.set_paused(true)
+	_spawn_ring = ring
+
 
 func _setup_signals() -> void:
 	hurt_timer.timeout.connect(_on_hurt_timer_timeout)
@@ -94,6 +109,10 @@ func _physics_process(_delta: float) -> void:
 					pdir = jd
 		if pdir.length() > 0.2:
 			_spawn_protected = false
+			if _spawn_ring:
+				_spawn_ring.visible = false
+			if _spawn_visual:
+				_spawn_visual.set_paused(true)
 		else:
 			global_position = Vector2.ZERO
 			velocity = Vector2.ZERO
@@ -104,7 +123,7 @@ func _physics_process(_delta: float) -> void:
 			_apply_regen(_delta)
 			return
 
-	var spd = GameState.effective_move_speed()
+	var spd = GameState.get_effective_move_speed()
 	var input_dir = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 
 	if input_dir.length() < 0.2:
@@ -117,7 +136,7 @@ func _physics_process(_delta: float) -> void:
 	if input_dir.length() > 0.2:
 		velocity = input_dir * spd
 	else:
-		velocity = velocity.move_toward(Vector2.ZERO, spd * 5.0)
+		velocity = velocity.move_toward(Vector2.ZERO, spd * 3.0)
 
 	move_and_slide()
 	_clamp_to_boundary()
@@ -336,7 +355,7 @@ func _clear_stun() -> void:
 func _spawn_trail(delta: float) -> void:
 	if not SaveSystem.get_setting("particles"):
 		return
-	if velocity.length() < 10:
+	if velocity.length() < 15:
 		return
 	_trail_timer += delta
 	if _trail_timer < 0.05:
@@ -372,8 +391,8 @@ func set_leveling_state(active: bool) -> void:
 
 
 func _clamp_to_boundary() -> void:
-	# 与 main.gd MAP_RADIUS=800 保持一致，避免玩家可在边界外缘卡位（Task 42）
-	var boundary_radius: float = 800.0
+	var cfg = GameState.get_current_map_config()
+	var boundary_radius: float = float(cfg.get("radius", 800.0))
 	var dist = global_position.length()
 	if dist > boundary_radius:
 		global_position = global_position.normalized() * boundary_radius

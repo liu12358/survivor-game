@@ -23,6 +23,10 @@ func _initialize() -> void:
 	_build_blades()
 
 
+func _requires_target() -> bool:
+	return false  # AOE 环绕剑，无需目标
+
+
 func _build_blades() -> void:
 	for b in _blades:
 		if is_instance_valid(b):

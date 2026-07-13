@@ -119,6 +119,8 @@ func _pickup(player: Node2D) -> void:
 	# 拾取音效
 	if has_node("/root/AudioManager"):
 		get_node("/root/AudioManager").play_sfx_pickup()
+	# 拾取后刷新缓存（宝石即将消失）
+	GameState.invalidate_group_cache()
 
 
 func _pickup_fx() -> void:
@@ -157,6 +159,8 @@ func _release_to_pool() -> void:
 	is_magnetized = false
 	target_player = null
 	_time_alive = 0.0
+	# 宝石离组后刷新缓存
+	GameState.invalidate_group_cache()
 	if _pool_ref and _pool_ref.has_method("release"):
 		_pool_ref.release(self)
 	else:

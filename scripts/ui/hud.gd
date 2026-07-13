@@ -43,9 +43,6 @@ func _process(_delta: float) -> void:
 		return
 	if GameState.is_game_over:
 		return
-	if GameState.current_exp >= GameState.exp_to_next_level:
-		if GameState.player_level < GameState.max_player_level:
-			_level_up()
 
 	# 怪物数量每0.5秒更新
 	_enemy_count_timer += _delta
@@ -95,8 +92,8 @@ func _create_ui() -> void:
 	hp_bar.custom_minimum_size = Vector2(300, 24)
 	hp_bar.show_percentage = false
 	hp_bar.min_value = 0
-	hp_bar.max_value = 100
-	hp_bar.value = 100
+	hp_bar.max_value = GameState.max_hp
+	hp_bar.value = GameState.current_hp
 
 	var hp_bg = StyleBoxFlat.new()
 	hp_bg.bg_color = Color(0.15, 0.15, 0.15, 0.8)
@@ -350,16 +347,20 @@ func _on_exp_collected(amount: int) -> void:
 	_exp_tween = create_tween()
 	_exp_tween.tween_property(exp_bar, "value", GameState.current_exp, 0.15)
 
-	# 经验条呼吸灯（>80%时脉冲）
-	var pct = GameState.current_exp / max(GameState.exp_to_next_level, 1.0)
-	if pct > 0.8 and not _exp_pulse_tween:
-		_start_exp_pulse()
-	elif pct <= 0.8 and _exp_pulse_tween:
-		_stop_exp_pulse()
+	# 连升多级时循环处理（避免 _process 双路径冲突）
+	while GameState.current_exp >= GameState.exp_to_next_level and GameState.player_level < GameState.max_player_level:
+		_level_up()
+		# 升级后若 EXP 仍 >80%，立即重启脉冲
+		var pct = GameState.current_exp / max(GameState.exp_to_next_level, 1.0)
+		if pct > 0.8 and not _exp_pulse_tween:
+			_start_exp_pulse()
 
-	if GameState.current_exp >= GameState.exp_to_next_level:
-		if GameState.player_level < GameState.max_player_level:
-			_level_up()
+	# 经验条呼吸灯（>80%时脉冲）
+	var final_pct = GameState.current_exp / max(GameState.exp_to_next_level, 1.0)
+	if final_pct > 0.8 and not _exp_pulse_tween:
+		_start_exp_pulse()
+	elif final_pct <= 0.8 and _exp_pulse_tween:
+		_stop_exp_pulse()
 
 
 func _start_exp_pulse() -> void:

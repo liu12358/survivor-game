@@ -2,7 +2,6 @@
 extends Control
 
 const MINIMAP_SIZE := Vector2(160, 160)
-const MAP_RADIUS := 800.0
 const DOT_PLAYER_SIZE := 6.0
 const DOT_ENEMY_SIZE := 4.0
 const DOT_COLOR_PLAYER := Color(0.2, 0.8, 1.0)
@@ -48,7 +47,9 @@ func _cache_positions() -> void:
 
 func _draw() -> void:
 	var center = MINIMAP_SIZE / 2.0
-	var map_scale = MINIMAP_SIZE.x / (MAP_RADIUS * 2.0)
+	var cfg = GameState.get_current_map_config()
+	var map_radius = float(cfg.get("radius", 800.0))
+	var map_scale = MINIMAP_SIZE.x / (map_radius * 2.0)
 
 	draw_circle(center, MINIMAP_SIZE.x / 2.0, BG_COLOR)
 	draw_arc(center, MINIMAP_SIZE.x / 2.0 - 1, 0, TAU, 64, BORDER_COLOR, 2.5)

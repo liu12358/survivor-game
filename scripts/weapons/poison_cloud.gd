@@ -17,6 +17,10 @@ func _initialize() -> void:
 	max_level = 8
 
 
+func _requires_target() -> bool:
+	return false  # AOE 毒雾区域，无需目标（目标仅影响落点）
+
+
 func _attack() -> void:
 	# 使用父节点（玩家）的世界坐标，而非自身局部坐标
 	var pos := get_parent().global_position if get_parent() else global_position

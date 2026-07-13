@@ -53,6 +53,14 @@ func _ready() -> void:
 
 
 func _build() -> void:
+	# 全屏背景按钮（捕获面板外点击，用于"点击外部 advancing"）
+	var bg_btn = Button.new()
+	bg_btn.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg_btn.flat = true
+	bg_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	bg_btn.pressed.connect(_advance)
+	add_child(bg_btn)
+
 	_panel = PanelContainer.new()
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
 	_panel.offset_left = -280
@@ -121,14 +129,6 @@ func _build() -> void:
 	next_btn.add_theme_font_size_override("font_size", 14)
 	next_btn.pressed.connect(_advance)
 	btn_row.add_child(next_btn)
-
-	# 点击遮罩空白区域也可下一步
-	_panel.gui_input.connect(func(event):
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			var local = _panel.get_local_mouse_position()
-			if not Rect2(Vector2.ZERO, _panel.size).has_point(local):
-				_advance()
-	)
 
 
 func start_tutorial() -> void:

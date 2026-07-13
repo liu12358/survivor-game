@@ -574,8 +574,11 @@ func _apply_choice(data: Dictionary) -> void:
 			GameState.active_passives[pid] = cur_lv + 1
 			_apply_passive(pid)
 		"skip":
-			# 通过 EventBus 走 HUD 经验处理，确保 UI 刷新与升级检测一致
-			EventBus.exp_collected.emit(int(GameState.exp_to_next_level * 0.3))
+			if GameState.player_level >= GameState.max_player_level:
+				EventBus.gold_collected.emit(int(GameState.exp_to_next_level * 0.15))
+			else:
+				# 通过 EventBus 走 HUD 经验处理，确保 UI 刷新与升级检测一致
+				EventBus.exp_collected.emit(int(GameState.exp_to_next_level * 0.3))
 
 	EventBus.upgrade_selected.emit(data["id"])
 	# 超武合成检查由 upgrade_selected 信号统一触发（_on_upgrade_selected_synthesis）
@@ -676,11 +679,15 @@ func _show_weapon_replace_dialog(new_weapon_card: Dictionary) -> void:
 	vbox.add_child(cancel_spacer)
 
 	var cancel_btn = Button.new()
-	cancel_btn.text = "取消（获得经验补偿）"
+	var at_max = GameState.player_level >= GameState.max_player_level
+	cancel_btn.text = "取消" if at_max else "取消（获得经验补偿）"
 	cancel_btn.add_theme_font_size_override("font_size", 14)
 	cancel_btn.custom_minimum_size = Vector2(180, 40)
 	cancel_btn.pressed.connect(func():
-		EventBus.exp_collected.emit(int(GameState.exp_to_next_level * 0.3))
+		if at_max:
+			EventBus.gold_collected.emit(int(GameState.exp_to_next_level * 0.15))
+		else:
+			EventBus.exp_collected.emit(int(GameState.exp_to_next_level * 0.3))
 		_replace_cancel()
 	)
 	vbox.add_child(cancel_btn)

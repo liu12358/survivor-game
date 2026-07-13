@@ -24,6 +24,10 @@ func _initialize() -> void:
 	max_level = 8
 
 
+func _requires_target() -> bool:
+	return false  # AOE 地面区域，无需目标
+
+
 func _ready() -> void:
 	super._ready()
 	add_to_group("weapon")

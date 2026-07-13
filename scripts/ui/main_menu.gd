@@ -264,16 +264,25 @@ func _build_skin(box: VBoxContainer) -> void:
 		var skin_hover = skin_style.duplicate()
 		skin_hover.bg_color = GameState.SKINS[sid]["color"].lightened(0.2)
 		sbtn.add_theme_stylebox_override("hover", skin_hover)
-		# 文字保持白色
-		sbtn.add_theme_color_override("font_color", Color.WHITE)
-		sbtn.add_theme_color_override("font_hover_color", Color.WHITE)
+		# 根据背景亮度自动选择文字颜色，保证可读性
+		var bg_col = GameState.SKINS[sid]["color"]
+		var lum = 0.299 * bg_col.r + 0.587 * bg_col.g + 0.114 * bg_col.b
+		var text_col = Color.BLACK if lum > 0.5 else Color.WHITE
+		sbtn.add_theme_color_override("font_color", text_col)
+		sbtn.add_theme_color_override("font_hover_color", text_col)
 		row.add_child(sbtn)
 		btns[sid] = sbtn
 		sbtn.pressed.connect(func(id=sid):
 			if id in SaveSystem.data["unlocked_skins"]:
 				SaveSystem.select_skin(id)
+				if has_node("/root/AudioManager"):
+					get_node("/root/AudioManager").play_sfx_ui_click()
 			elif SaveSystem.buy_skin(id):
-				pass
+				if has_node("/root/AudioManager"):
+					get_node("/root/AudioManager").play_sfx_levelup()
+				var tm = get_tree().get_first_node_in_group("toast_manager")
+				if tm and tm.has_method("show_system"):
+					tm.show_system("皮肤「%s」已解锁！" % GameState.SKINS[id]["name"])
 			skin_label.text = "皮肤: " + _get_skin_name()
 			_refresh_skin_btns(btns)
 		)

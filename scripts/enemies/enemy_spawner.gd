@@ -180,6 +180,8 @@ func _spawn_enemy() -> void:
 	if not from_pool:
 		_active_enemies.append(enemy)
 	EventBus.enemy_spawned.emit(enemy)
+	# 敌人入组后刷新缓存
+	GameState.invalidate_group_cache()
 
 
 func _pick_enemy_type() -> String:
@@ -293,6 +295,8 @@ func _spawn_elite() -> void:
 	if not _active_enemies.has(enemy):
 		_active_enemies.append(enemy)
 	EventBus.enemy_spawned.emit(enemy)
+	# 敌人入组后刷新缓存
+	GameState.invalidate_group_cache()
 
 
 func _apply_late_game_affix(enemy: Node2D) -> void:

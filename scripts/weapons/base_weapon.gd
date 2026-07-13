@@ -61,9 +61,15 @@ func _process(delta: float) -> void:
 			_attack()
 			if has_node("/root/AudioManager"):
 				get_node("/root/AudioManager").play_sfx_shoot()
-		else:
-			# 没找到目标时也尝试攻击（随机方向）
+		elif not _requires_target():
+			# AOE 武器无需目标即可攻击
 			_attack()
+			if has_node("/root/AudioManager"):
+				get_node("/root/AudioManager").play_sfx_shoot()
+
+
+func _requires_target() -> bool:
+	return true  # 默认需要目标，AOE 武器子类重写为 false
 
 
 func _initialize() -> void:

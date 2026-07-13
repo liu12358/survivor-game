@@ -394,9 +394,6 @@ func _process(delta: float) -> void:
 	if GameState.is_paused:
 		return
 
-	# P-1：每帧失效组缓存，确保后续 get_cached_group 获取最新数据
-	GameState.invalidate_group_cache()
-
 	_total_game_time += delta
 
 	# 连杀计时器
@@ -696,12 +693,16 @@ func _magnet_all_gems() -> void:
 
 func _clear_all_enemies() -> void:
 	EventBus.screen_shake_requested.emit(6.0, 0.2)
+	# 清屏炸弹伤害随玩家伤害和生存时间缩放，避免后期形同虚设
+	var bomb_base = GameState.base_damage * GameState.get_damage_multiplier()
+	var time_scale = 1.0 + _total_game_time / 300.0  # 每5分钟翻一倍基准
+	var bomb_damage = bomb_base * 50.0 * time_scale
 	for enemy in get_tree().get_nodes_in_group("enemy"):
 		# 跳过 BOSS，清屏炸弹不应秒杀 BOSS
 		if enemy.is_in_group("boss"):
 			continue
 		if is_instance_valid(enemy) and enemy.has_method("take_damage"):
-			enemy.take_damage(500.0)
+			enemy.take_damage(bomb_damage)
 
 
 # ─── 成就判定 ───
@@ -1044,6 +1045,9 @@ func _on_screen_shake(amplitude: float, duration: float) -> void:
 
 func _spawn_ambient_stars(delta: float) -> void:
 	if not SaveSystem.get_setting("particles"):
+		return
+	# 史诗/结算时刻暂停星屑，避免氛围冲突
+	if _epic_zoom_active or _game_ended:
 		return
 	_star_timer += delta
 	if _star_timer < 1.2:

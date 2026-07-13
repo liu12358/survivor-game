@@ -13,6 +13,10 @@ func _initialize() -> void:
 	range = 80.0
 	aoe_radius = 80.0
 	target_range = 80.0
+
+
+func _requires_target() -> bool:
+	return false  # AOE 环绕，无需目标
 	max_level = 8
 
 	_ring_visual()
