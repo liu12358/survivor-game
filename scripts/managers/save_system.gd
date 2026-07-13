@@ -13,10 +13,12 @@ const DEFAULT_SAVE_DATA: Dictionary = {
 	"total_gold": 0,
 	"total_kills": 0,
 	"total_games": 0,
+	"total_playtime": 0.0,
 	"highest_survival": 0.0,
 	"unlocked_characters": ["mage"],
 	"unlocked_achievements": [],
 	"bestiary": {},
+	"weapons_used": {},
 	"unlocked_skins": ["default"],
 	"selected_skin": "default",
 	"meta_upgrades": {
@@ -29,6 +31,9 @@ const DEFAULT_SAVE_DATA: Dictionary = {
 	},
 	"settings": {
 		"master_volume": 0.8,
+		"bgm_volume": 0.8,
+		"sfx_volume": 1.0,
+		"ui_volume": 0.8,
 		"sfx": true,
 		"screen_shake": true,
 		"particles": true,
@@ -57,6 +62,10 @@ var data: Dictionary = {}
 var _integrity_ok: bool = true
 var _tamper_warned: bool = false
 
+# 存档频率优化（Task 47）：合并同帧多次内部 save_game 调用为一次落盘
+var _dirty: bool = false
+var _save_scheduled: bool = false
+
 
 func _ready() -> void:
 	# 强制设置运行时 locale，确保 tr() 检索英文翻译列
@@ -76,7 +85,8 @@ func _compute_checksum(raw: String) -> String:
 func _verify_integrity(json_str: String) -> bool:
 	"""校验存档完整性"""
 	if not FileAccess.file_exists(CHECKSUM_PATH):
-		return true  # 无校验文件，不阻断（首次保存后才生成）
+		# 校验文件缺失即视为存档不可信，禁止静默放行（Task 25）
+		return false
 	var cfile := FileAccess.open(CHECKSUM_PATH, FileAccess.READ)
 	if not cfile:
 		return true
@@ -113,10 +123,11 @@ func load_game() -> void:
 	# 完整性校验
 	var valid := _verify_integrity(json_str)
 	if not valid:
-		# 存档被篡改：使用默认数据 + 警告
+		# 存档被篡改：用默认数据覆盖损坏存档并重建校验和，便于玩家恢复（Task 25）
 		if not _tamper_warned:
-			printerr("[SaveSystem] 存档被篡改，已重置为默认值")
+			printerr("[SaveSystem] 存档被篡改，已重置为默认值并覆盖损坏存档")
 			_tamper_warned = true
+		save_game()
 		return
 
 	var json: Variant = JSON.parse_string(json_str)
@@ -127,12 +138,29 @@ func load_game() -> void:
 
 
 func save_game() -> void:
+	# 显式立即落盘：同时清掉待写标记，避免后续 _flush_save 重复写盘（Task 47）
+	_dirty = false
+	_save_scheduled = false
 	var json_str := JSON.stringify(data)
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if not file:
 		return
 	file.store_string(json_str)
 	_write_checksum(json_str)
+
+
+# 延迟合并落盘：内部联动（解锁角色/成就）改用此入口，避免一次 add_game_result 触发 3+ 次磁盘 IO（Task 47）
+func save_game_deferred() -> void:
+	_dirty = true
+	if not _save_scheduled:
+		_save_scheduled = true
+		call_deferred("_flush_save")
+
+
+func _flush_save() -> void:
+	_save_scheduled = false
+	if _dirty:
+		save_game()
 
 
 func is_tampered() -> bool:
@@ -177,11 +205,27 @@ func add_game_result(gold: int, kills: int, survival: float) -> void:
 	data["total_games"] += 1
 	if survival > data["highest_survival"]:
 		data["highest_survival"] = survival
+	# 累计在线时长（秒）
+	data["total_playtime"] = float(data.get("total_playtime", 0.0)) + survival
 	if data["total_kills"] >= 10000:
 		unlock_character("selene")
 	if data["total_games"] >= 5:
 		unlock_character("little_fried_egg")
+	# 同步 GameState 镜像
+	GameState.total_playtime = float(data["total_playtime"])
 	save_game()
+
+
+func record_weapon_usage(weapon_id: String) -> void:
+	if not data.has("weapons_used"):
+		data["weapons_used"] = {}
+	data["weapons_used"][weapon_id] = int(data["weapons_used"].get(weapon_id, 0)) + 1
+	GameState.weapons_used[weapon_id] = data["weapons_used"][weapon_id]
+	save_game_deferred()
+
+
+func get_weapon_usage(weapon_id: String) -> int:
+	return int(data.get("weapons_used", {}).get(weapon_id, 0))
 
 
 # ─── 角色/成就/皮肤 ───
@@ -192,7 +236,8 @@ func unlock_character(id: String) -> void:
 	if not data["unlocked_characters"].has(id):
 		data["unlocked_characters"].append(id)
 		GameState.unlocked_characters = data["unlocked_characters"].duplicate()
-		save_game()
+		# 延迟落盘：add_game_result 末尾的 save_game 会一并写盘（Task 47）
+		save_game_deferred()
 		var ach := "unlock_" + id
 		if unlock_achievement(ach):
 			EventBus.achievement_unlocked.emit(ach)
@@ -206,7 +251,7 @@ func unlock_achievement(id: String) -> bool:
 	data["unlocked_achievements"].append(id)
 	data["total_gold"] += int(ACHIEVEMENTS.get(id, {}).get("gold", 0))
 	GameState.unlocked_achievements = data["unlocked_achievements"].duplicate()
-	save_game()
+	save_game_deferred()
 	return true
 
 
@@ -214,6 +259,7 @@ func record_kill(enemy_type: String) -> void:
 	if not data.has("bestiary"):
 		data["bestiary"] = {}
 	data["bestiary"][enemy_type] = int(data["bestiary"].get(enemy_type, 0)) + 1
+	GameState.bestiary_kills[enemy_type] = data["bestiary"][enemy_type]
 
 
 func buy_skin(id: String) -> bool:
@@ -253,6 +299,17 @@ func apply_meta_to_gamestate() -> void:
 	if data.has("unlocked_skins"):
 		GameState.unlocked_skins = data["unlocked_skins"].duplicate()
 	GameState.selected_skin = data.get("selected_skin", "default")
+	# 局外统计数据镜像到 GameState，供 HUD/主菜单读取（Task 39）
+	GameState.total_gold = int(data.get("total_gold", 0))
+	GameState.total_kills = int(data.get("total_kills", 0))
+	GameState.total_playtime = float(data.get("total_playtime", 0.0))
+	GameState.highest_survival = float(data.get("highest_survival", 0.0))
+	GameState.total_games = int(data.get("total_games", 0))
+	# 图鉴/武器使用记录镜像
+	if data.has("weapons_used"):
+		GameState.weapons_used = data["weapons_used"].duplicate(true)
+	if data.has("bestiary"):
+		GameState.bestiary_kills = data["bestiary"].duplicate(true)
 
 
 func buy_upgrade(upgrade_id: String) -> bool:
@@ -280,6 +337,9 @@ func get_upgrade_level(upgrade_id: String) -> int:
 # ─── 设置 ───
 
 func get_setting(key: String):
+	if not data.has("settings") or not data["settings"] is Dictionary:
+		var defaults = DEFAULT_SAVE_DATA.get("settings", {})
+		return defaults.get(key, null)
 	return data["settings"].get(key, null)
 
 

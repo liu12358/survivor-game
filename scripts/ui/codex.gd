@@ -19,6 +19,18 @@ const BESTIARY = [
 	{"id": "boss_shadow_lord", "name": "暗影领主", "icon": "👑", "hp": "800", "desc": "裂隙之主，三阶段 BOSS，10 分钟降临"},
 ]
 
+const WEAPON_INFO = {
+	"magic_bolt":      {"name": "魔法弹", "icon": "🔮"},
+	"fire_ring":       {"name": "烈焰环", "icon": "🔥"},
+	"lightning_chain": {"name": "闪电链", "icon": "⚡"},
+	"ice_storm":       {"name": "冰晶风暴", "icon": "❄️"},
+	"holy_spear":      {"name": "圣光之矛", "icon": "🏹"},
+	"poison_cloud":    {"name": "毒雾", "icon": "☠️"},
+	"sword_orbit":     {"name": "环绕剑刃", "icon": "⚔️"},
+	"piercing_arrow":  {"name": "穿透箭", "icon": "🎯"},
+	"lava_zone":       {"name": "岩浆", "icon": "🌋"},
+}
+
 
 func _ready() -> void:
 	var bg = ColorRect.new()
@@ -58,6 +70,27 @@ func _ready() -> void:
 
 	for r in SUPER_RECIPES:
 		vbox.add_child(_make_card(r))
+
+	# ── 武器使用统计 ──
+	var sep2 = Label.new()
+	sep2.text = "—— 🔫 武器使用统计 ——"
+	sep2.add_theme_font_size_override("font_size", 18)
+	sep2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sep2.modulate = Color(0.6, 0.8, 1.0)
+	vbox.add_child(sep2)
+	var weapons_used = SaveSystem.data.get("weapons_used", {})
+	for wid in WEAPON_INFO:
+		var info = WEAPON_INFO[wid]
+		var used = int(weapons_used.get(wid, 0))
+		var card = Label.new()
+		card.add_theme_font_size_override("font_size", 14)
+		if used > 0:
+			card.text = "%s %s — 使用 %d 次" % [info["icon"], info["name"], used]
+			card.modulate = Color(0.8, 0.9, 0.75)
+		else:
+			card.text = "%s %s — 未使用" % [info["icon"], info["name"]]
+			card.modulate = Color(0.5, 0.5, 0.5)
+		vbox.add_child(card)
 
 	# ── 怪物图鉴 ──
 	var sep = Label.new()

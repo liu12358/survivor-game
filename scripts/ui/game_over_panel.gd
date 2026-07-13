@@ -7,6 +7,8 @@ var _panel: Panel
 var _title_label: Label
 var _stats_container: VBoxContainer
 var _restart_button: Button
+var _continue_endless_button: Button
+var _show_tween: Tween = null
 
 func _ready() -> void:
 	layer = 20
@@ -57,6 +59,15 @@ func _create_ui() -> void:
 	spacer.custom_minimum_size = Vector2(0, 12)
 	vbox.add_child(spacer)
 
+	# 继续无尽模式按钮（仅通关时显示）
+	_continue_endless_button = Button.new()
+	_continue_endless_button.text = "继续无尽"
+	_continue_endless_button.custom_minimum_size = Vector2(200, 44)
+	_continue_endless_button.add_theme_font_size_override("font_size", 18)
+	_continue_endless_button.visible = false
+	vbox.add_child(_continue_endless_button)
+	_continue_endless_button.pressed.connect(_on_continue_endless)
+
 	_restart_button = Button.new()
 	_restart_button.text = "再战一局"
 	_restart_button.custom_minimum_size = Vector2(200, 44)
@@ -77,6 +88,10 @@ func _on_game_over(reason: String, stats: Dictionary) -> void:
 
 
 func _show_game_over(reason: String, stats: Dictionary) -> void:
+	# 延迟 0.3 秒显示，保留 player._die() 的慢动作效果
+	await get_tree().create_timer(0.3, true, false, true).timeout
+	Engine.time_scale = 1.0   # 取消死亡慢动作残留（暂停由 paused 负责）
+
 	# 清除旧统计
 	for child in _stats_container.get_children():
 		child.queue_free()
@@ -100,6 +115,10 @@ func _show_game_over(reason: String, stats: Dictionary) -> void:
 		_:
 			_title_label.text = "游戏结束"
 			_title_label.modulate = Color(0.8, 0.8, 0.8)
+
+	# 仅通关时显示「继续无尽」按钮
+	if _continue_endless_button:
+		_continue_endless_button.visible = (reason == "victory")
 
 	_add_stat("存活时间", _format_time(survival))
 	_add_stat("击杀数", "%d 只" % kills)
@@ -126,8 +145,16 @@ func _show_game_over(reason: String, stats: Dictionary) -> void:
 	comment.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_stats_container.add_child(comment)
 
+	# 出现动画：缩放 + 淡入
+	_panel.pivot_offset = _panel.size / 2
+	_panel.scale = Vector2(0.8, 0.8)
+	_panel.modulate.a = 0.0
 	visible = true
-	Engine.time_scale = 1.0   # 取消死亡慢动作残留（暂停由 paused 负责）
+	if _show_tween:
+		_show_tween.kill()
+	_show_tween = create_tween()
+	_show_tween.tween_property(_panel, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_show_tween.parallel().tween_property(_panel, "modulate:a", 1.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	get_tree().paused = true
 	GameState.is_paused = true
 	GameState.modal_active = true
@@ -196,6 +223,17 @@ func _on_restart() -> void:
 	GameState.is_paused = false
 	GameState.modal_active = false
 	get_tree().reload_current_scene()
+
+
+func _on_continue_endless() -> void:
+	# 隐藏结算面板，通知 Main 进入无尽模式
+	visible = false
+	get_tree().paused = false
+	GameState.is_paused = false
+	GameState.modal_active = false
+	var main = get_tree().get_first_node_in_group("main")
+	if main and main.has_method("continue_as_endless"):
+		main.continue_as_endless()
 
 
 func _on_main_menu() -> void:

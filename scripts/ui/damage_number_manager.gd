@@ -14,7 +14,7 @@ var _cluster_cache: Dictionary = {}
 
 # 伤害类型颜色
 const DMG_COLORS = {
-	0: Color(1, 1, 1, 1),       # 物理=白
+	0: Color(1, 0.95, 0.7, 1),  # 物理=浅黄（提高对比度）
 	1: Color(0.4, 0.7, 1, 1),    # 魔法=蓝
 	2: Color(0.7, 0.3, 1, 1),    # DOT=紫
 	3: Color(1, 0.85, 0.2, 1),   # 真实=金
@@ -47,15 +47,15 @@ func _on_damage_number(pos: Vector2, amount: float, is_crit: bool, dmg_type: int
 			entry.amount += int(amount)
 			entry.timer = now
 			entry.label.text = "%d" % int(entry.amount)
-		if is_crit and not entry.is_crit:
-			entry.is_crit = true
-			_set_crit_style(entry.label)
-		# 缩放抖动
-		var pulse := create_tween()
-		pulse.tween_property(entry.label, "scale", Vector2(1.35, 1.35), 0.04)
-		pulse.tween_property(entry.label, "scale", Vector2(1.0, 1.0), 0.08)
-		return
-	# entry 为 null 或已过期 → 走下方创建新数字逻辑
+			if is_crit and not entry.is_crit:
+				entry.is_crit = true
+				_set_crit_style(entry.label)
+			# 缩放抖动
+			var pulse := create_tween()
+			pulse.tween_property(entry.label, "scale", Vector2(1.35, 1.35), 0.04)
+			pulse.tween_property(entry.label, "scale", Vector2(1.0, 1.0), 0.08)
+			return
+	# entry 为 null、已过期或 label 失效 → 走下方创建新数字逻辑
 
 	# 创建新数字
 	var label = Label.new()
@@ -65,13 +65,21 @@ func _on_damage_number(pos: Vector2, amount: float, is_crit: bool, dmg_type: int
 	label.modulate = DMG_COLORS.get(dmg_type, Color.WHITE)
 	if is_crit:
 		_set_crit_style(label)
+	# 描边阴影，提高可读性
+	label.add_theme_color_override("font_shadow_color", Color.BLACK)
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(label)
 
-	# 世界坐标转屏幕坐标
+	# 暴击首次出现弹跳动画
+	if is_crit:
+		label.scale = Vector2(1.4, 1.4)
+		create_tween().tween_property(label, "scale", Vector2.ONE, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	# 世界坐标转屏幕坐标（用相机投影，自动处理 zoom/旋转/偏移）
 	var cam = get_viewport().get_camera_2d()
 	if cam:
-		var view_size = get_viewport().get_visible_rect().size
-		label.global_position = pos - cam.global_position + view_size / 2
+		label.global_position = cam.unproject_position(pos)
 	else:
 		label.global_position = pos
 

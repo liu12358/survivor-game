@@ -22,6 +22,10 @@ var low_hp_overlay: ColorRect
 
 var _low_hp_tween: Tween
 var _exp_pulse_tween: Tween
+var _streak_tween: Tween = null
+var _hp_tween: Tween = null
+var _exp_tween: Tween = null
+var _boss_bar_tween: Tween = null
 var _enemy_count_timer: float = 0.0
 var _streak_label: Label
 var _weapon_labels: Dictionary = {}  # {weapon_id: Label}
@@ -305,7 +309,7 @@ func _update_hp_display(cur: float = -1.0) -> void:
 	if cur < 0:
 		cur = GameState.current_hp
 	hp_bar.max_value = GameState.max_hp
-	hp_bar.value = max(0, cur)
+	_tween_hp_bar(max(0, cur))
 	hp_label.text = "%d / %d" % [int(max(0, cur)), int(GameState.max_hp)]
 
 	# HP条颜色：绿→黄→红
@@ -325,13 +329,26 @@ func _update_hp_display(cur: float = -1.0) -> void:
 		EventBus.low_hp_warning_cleared.emit()
 
 
+# 血条平滑过渡
+func _tween_hp_bar(target: float) -> void:
+	if _hp_tween:
+		_hp_tween.kill()
+	_hp_tween = create_tween()
+	_hp_tween.tween_property(hp_bar, "value", target, 0.2)
+
+
 func _on_exp_collected(amount: int) -> void:
 	if GameState.player_level >= GameState.max_player_level:
 		return  # 50 级后停止累计经验（D-9）
-	var streak_mult = 1.0 + GameState.kill_streak_bonus
-	GameState.current_exp += float(amount) * (1.0 + GameState.exp_bonus) * GameState.exp_buff_mult * streak_mult
+	var exp_rate: float = GameState.get_effective_exp_rate()
+	var gained: int = int(float(amount) * exp_rate)
+	GameState.current_exp += gained
 	exp_bar.max_value = GameState.exp_to_next_level
-	exp_bar.value = GameState.current_exp
+	# 经验条平滑过渡
+	if _exp_tween:
+		_exp_tween.kill()
+	_exp_tween = create_tween()
+	_exp_tween.tween_property(exp_bar, "value", GameState.current_exp, 0.15)
 
 	# 经验条呼吸灯（>80%时脉冲）
 	var pct = GameState.current_exp / max(GameState.exp_to_next_level, 1.0)
@@ -397,21 +414,34 @@ func _show_low_hp_warning(_pct: float) -> void:
 	if _low_hp_tween:
 		_low_hp_tween.kill()
 	_low_hp_tween = create_tween().set_loops()
-	_low_hp_tween.tween_property(low_hp_overlay, "color:a", 0.3, 0.75)
-	_low_hp_tween.tween_property(low_hp_overlay, "color:a", 0.05, 0.75)
+	_low_hp_tween.tween_property(low_hp_overlay, "color:a", 0.25, 0.5)
+	_low_hp_tween.tween_property(low_hp_overlay, "color:a", 0.1, 0.5)
 
 
 func _hide_low_hp_warning() -> void:
-	low_hp_overlay.visible = false
 	if _low_hp_tween:
 		_low_hp_tween.kill()
 		_low_hp_tween = null
+	if low_hp_overlay.visible:
+		# 淡出后再隐藏，避免突然消失
+		var t = create_tween()
+		t.tween_property(low_hp_overlay, "color:a", 0.0, 0.3)
+		t.tween_callback(func(): low_hp_overlay.visible = false)
 
 
 func _on_boss_spawned() -> void:
 	var bb = get_node_or_null("BossBox")
 	if bb:
+		if _boss_bar_tween:
+			_boss_bar_tween.kill()
+		# 初始状态：透明 + 上方偏移
+		bb.modulate.a = 0.0
+		bb.offset_top = 24
 		bb.visible = true
+		# 淡入 + 滑入
+		_boss_bar_tween = create_tween().set_parallel(true)
+		_boss_bar_tween.tween_property(bb, "modulate:a", 1.0, 0.3).set_trans(Tween.TRANS_BACK)
+		_boss_bar_tween.tween_property(bb, "offset_top", 44, 0.3).set_trans(Tween.TRANS_BACK)
 
 
 func _on_boss_hp_changed(cur: float, mx: float) -> void:
@@ -423,7 +453,12 @@ func _on_boss_hp_changed(cur: float, mx: float) -> void:
 func _on_boss_killed() -> void:
 	var bb = get_node_or_null("BossBox")
 	if bb:
-		bb.visible = false
+		if _boss_bar_tween:
+			_boss_bar_tween.kill()
+		# 淡出后隐藏
+		_boss_bar_tween = create_tween()
+		_boss_bar_tween.tween_property(bb, "modulate:a", 0.0, 0.2)
+		_boss_bar_tween.tween_callback(func(): bb.visible = false)
 
 
 func _on_achievement(id: String) -> void:
@@ -559,11 +594,13 @@ func _on_streak_reached(count: int) -> void:
 	_streak_label.visible = true
 	_streak_label.scale = Vector2(1.3, 1.3)
 
-	var t = create_tween()
-	t.tween_property(_streak_label, "scale", Vector2.ONE, 0.2).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-	t.tween_interval(1.5)
-	t.tween_property(_streak_label, "modulate:a", 0.0, 0.3)
-	t.tween_callback(func():
+	if _streak_tween:
+		_streak_tween.kill()
+	_streak_tween = create_tween()
+	_streak_tween.tween_property(_streak_label, "scale", Vector2.ONE, 0.2).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	_streak_tween.tween_interval(1.5)
+	_streak_tween.tween_property(_streak_label, "modulate:a", 0.0, 0.3)
+	_streak_tween.tween_callback(func():
 		_streak_label.visible = false
 		_streak_label.modulate.a = 1.0
 	)

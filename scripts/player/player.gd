@@ -21,6 +21,7 @@ var shield_health: float:
 var invincible_timer: float = 0.0
 var is_dead: bool = false
 var _skin_color: Color = Color.WHITE
+var _spawn_protected: bool = true
 
 # Shield Gate（护盾破裂保护）
 var _shield_gate_active: bool = false           # 本帧已触发 shield gate，防递归
@@ -35,12 +36,15 @@ var state: PlayerState = PlayerState.NORMAL
 # 异常状态
 var is_slowed: bool = false
 var slow_amount: float = 0.0
-var is_burning: bool = false
 var burn_stacks: int = 0
-var is_frozen: bool = false
 var is_stunned: bool = false
 var _trail_timer: float = 0.0
 var _magnet_pulse: float = 0.0
+
+# 死亡慢动作 Tween 引用：重复死亡时先 kill 旧 tween，避免回调提前触发（Task 40）
+var _death_tween: Tween = null
+var _slow_tween: Tween = null
+var _stun_tween: Tween = null
 
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var hurt_timer: Timer = $HurtTimer
@@ -76,8 +80,29 @@ func _setup_signals() -> void:
 func _physics_process(_delta: float) -> void:
 	if is_dead:
 		return
-	if state == PlayerState.DEAD or state == PlayerState.LEVELING:
+	if state == PlayerState.DEAD or state == PlayerState.LEVELING or state == PlayerState.STUNNED:
 		return
+
+	# 开局位置保护：未输入前强制留在原点，防止瞬移/滑出
+	if _spawn_protected:
+		var pdir = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+		if pdir.length() > 0.2:
+			var js = get_tree().get_first_node_in_group("joystick")
+			if js and js.has_method("get_direction"):
+				var jd = js.get_direction()
+				if jd.length() > 0.15:
+					pdir = jd
+		if pdir.length() > 0.2:
+			_spawn_protected = false
+		else:
+			global_position = Vector2.ZERO
+			velocity = Vector2.ZERO
+			EventBus.player_moved.emit(global_position)
+			_magnetize_nearby_gems(_delta)
+			_spawn_trail(_delta)
+			_update_timers(_delta)
+			_apply_regen(_delta)
+			return
 
 	var spd = GameState.effective_move_speed()
 	var input_dir = Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -101,22 +126,6 @@ func _physics_process(_delta: float) -> void:
 	_spawn_trail(_delta)
 	_update_timers(_delta)
 	_apply_regen(_delta)
-
-
-func _handle_movement() -> void:
-	var spd := GameState.effective_move_speed()
-	var input_dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	# 键盘无输入时回退到触屏摇杆
-	if input_dir.length() < 0.2:
-		var js = get_tree().get_first_node_in_group("joystick")
-		if js and js.has_method("get_direction"):
-			var jd: Vector2 = js.get_direction()
-			if jd.length() > 0.15:
-				input_dir = jd
-	if input_dir.length() > 0.2:
-		velocity = input_dir * spd
-	else:
-		velocity = velocity.move_toward(Vector2.ZERO, spd * 5.0)
 
 
 func _update_timers(delta: float) -> void:
@@ -154,6 +163,9 @@ func _on_hurt_timer_timeout() -> void:
 func take_damage(amount: float) -> void:
 	if is_dead or invincible_timer > 0.0 or GameState.invincible_buff or GameState.cheat_godmode:
 		return
+	# 新手引导期间无敌（避免怪物在指引未点时攻击）
+	if GameState.tutorial_active:
+		return
 
 	# ─── Shield Gate: 扣盾前记录旧值 ───
 	var shield_before := shield_health
@@ -171,9 +183,8 @@ func take_damage(amount: float) -> void:
 		_shield_gate_active = true
 		invincible_timer = SHIELD_GATE_DURATION
 		_shield_gate_push()
-		# 延迟一帧释放标志，避免同一帧多次触发
-		await get_tree().process_frame
-		_shield_gate_active = false
+		# 非阻塞延迟一帧释放标志：避免 await 把 HP 扣减/信号发射整体延后一帧（Task 15）
+		get_tree().create_timer(0.0).timeout.connect(func() -> void: _shield_gate_active = false, CONNECT_ONE_SHOT)
 
 	# 扣HP
 	if remaining > 0:
@@ -193,6 +204,10 @@ func take_damage(amount: float) -> void:
 	else:
 		state = PlayerState.HURT
 		hurt_timer.start(SHIELD_GATE_DURATION)
+
+	# 受伤音效（仅在实际受伤且未死亡时播放）
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_player_hurt()
 
 	# 视觉效果
 	_flash_red()
@@ -258,12 +273,17 @@ func _die() -> void:
 	is_dead = true
 	state = PlayerState.DEAD
 	collision_shape.set_deferred("disabled", true)
-	# 死亡慢动作
+	# 死亡慢动作：重复死亡时先 kill 旧 tween，避免旧回调把 time_scale 提前归位（Task 40）
 	Engine.time_scale = 0.3
-	var t = create_tween()
-	t.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
-	t.tween_interval(0.3)
-	t.tween_callback(func(): Engine.time_scale = 1.0)
+	if _death_tween:
+		_death_tween.kill()
+	_death_tween = create_tween()
+	_death_tween.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+	_death_tween.tween_interval(0.3)
+	_death_tween.tween_callback(func(): Engine.time_scale = 1.0)
+	# 玩家死亡音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_player_die()
 	EventBus.player_died.emit()
 
 # ─── 治疗 ───
@@ -284,26 +304,32 @@ func apply_slow(amount: float, duration: float) -> void:
 	is_slowed = true
 	slow_amount = max(slow_amount, amount)
 	GameState.slow_amount = clampf(slow_amount, 0.0, 0.6)
-	var t = create_tween()
-	t.tween_callback(_clear_slow).set_delay(duration)
+	if _slow_tween and _slow_tween.is_valid():
+		_slow_tween.kill()
+	_slow_tween = create_tween()
+	_slow_tween.tween_callback(_clear_slow).set_delay(duration)
 
 
 func _clear_slow() -> void:
 	is_slowed = false
 	slow_amount = 0.0
 	GameState.slow_amount = 0.0
+	_slow_tween = null
 
 
 func apply_stun(duration: float) -> void:
 	is_stunned = true
 	state = PlayerState.STUNNED
-	var t = create_tween()
-	t.tween_callback(_clear_stun).set_delay(duration)
+	if _stun_tween and _stun_tween.is_valid():
+		_stun_tween.kill()
+	_stun_tween = create_tween()
+	_stun_tween.tween_callback(_clear_stun).set_delay(duration)
 
 
 func _clear_stun() -> void:
 	is_stunned = false
 	state = PlayerState.NORMAL
+	_stun_tween = null
 
 # ─── 工具 ───
 
@@ -346,7 +372,8 @@ func set_leveling_state(active: bool) -> void:
 
 
 func _clamp_to_boundary() -> void:
-	var boundary_radius: float = 780.0
+	# 与 main.gd MAP_RADIUS=800 保持一致，避免玩家可在边界外缘卡位（Task 42）
+	var boundary_radius: float = 800.0
 	var dist = global_position.length()
 	if dist > boundary_radius:
 		global_position = global_position.normalized() * boundary_radius

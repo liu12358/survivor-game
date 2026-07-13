@@ -8,6 +8,7 @@ var _title_label: Label
 var _card_container: HBoxContainer
 var _cards: Array[Dictionary] = []
 var _replace_overlay: Control = null
+var _hide_tween: Tween = null
 
 # 保底追踪
 var _consecutive_non_weapon: int = 0   # 连续未出武器次数
@@ -84,6 +85,8 @@ func _ready() -> void:
 	_create_ui()
 	visible = false
 	EventBus.player_level_up.connect(_on_level_up)
+	# 监听升级信号以触发超武合成检查（涵盖本面板选卡与作弊菜单升级）
+	EventBus.upgrade_selected.connect(_on_upgrade_selected_synthesis)
 
 
 func reset_for_new_game() -> void:
@@ -161,6 +164,9 @@ func _get_pool_by_category() -> Dictionary:
 
 	# 武器升级
 	for wid in GameState.active_weapons:
+		# Mega 武器靠 Timer 实现效果，无 BaseWeapon 实例，不可常规升级
+		if GameState.mega_weapons.has(wid):
+			continue
 		var lv = GameState.active_weapons[wid]
 		var wi = WEAPON_INFO.get(wid, {"name": wid, "icon": "⚔️"})
 		var max_lv = 7
@@ -211,8 +217,7 @@ func _pick_category(pools: Dictionary) -> String:
 
 	# 保底：连续3次无武器 → 必出武器
 	if _consecutive_non_weapon >= 3 and (has_upgrade or has_new):
-		_consecutive_non_weapon = 0
-		return "weapon_force"  # 标记强制武器
+		return "weapon_force"  # 标记强制武器（计数器在 _generate_choices 末尾重置）
 
 	# 保底：连续5次无被动 → 必出被动
 	if _consecutive_non_passive >= 5 and has_passive:
@@ -285,16 +290,16 @@ func _roll_affix_for_card(card: Dictionary) -> Dictionary:
 	var affix: Dictionary = {}
 
 	if roll < 0.02:  # 2% 史诗
-		affix = EPIC_AFFIXES[GameState.rng.randi() % EPIC_AFFIXES.size()]
+		affix = EPIC_AFFIXES[GameState.rng.randi() % EPIC_AFFIXES.size()].duplicate(true)
 		card["title"] = card["title"] + " ✦"
 	elif roll < 0.05:  # 3% 置换（有得有失）
-		affix = INVERSE_AFFIXES.duplicate(true)[GameState.rng.randi() % INVERSE_AFFIXES.size()]
+		affix = INVERSE_AFFIXES[GameState.rng.randi() % INVERSE_AFFIXES.size()].duplicate(true)
 		card["title"] = card["title"] + " ⚖️"
 	elif roll < 0.10:  # 5% 稀有
-		affix = RARE_AFFIXES[GameState.rng.randi() % RARE_AFFIXES.size()]
+		affix = RARE_AFFIXES[GameState.rng.randi() % RARE_AFFIXES.size()].duplicate(true)
 		card["title"] = card["title"] + " ★"
 	elif roll < 0.22:  # 15% 普通
-		affix = COMMON_AFFIXES[GameState.rng.randi() % COMMON_AFFIXES.size()]
+		affix = COMMON_AFFIXES[GameState.rng.randi() % COMMON_AFFIXES.size()].duplicate(true)
 		card["title"] = card["title"] + " ☆"
 
 	if not affix.is_empty():
@@ -312,7 +317,6 @@ func _generate_choices() -> void:
 
 	# 生成3张卡，去重（同一武器/被动不重复出现）
 	var used_ids: Array[String] = []
-	var category_count := {"weapon_upgrade": 0, "new_weapon": 0, "passive": 0, "skip": 0}
 
 	for i in range(3):
 		var category = _pick_category(pools)
@@ -342,7 +346,6 @@ func _generate_choices() -> void:
 		card = _roll_affix_for_card(card)
 
 		_cards.append(card)
-		category_count[str(card.get("type", "skip"))] = category_count.get(str(card.get("type", "skip")), 0) + 1
 
 	# 更新保底追踪
 	var has_weapon_card = false
@@ -385,6 +388,10 @@ func _show_panel() -> void:
 	get_tree().paused = true
 	GameState.is_paused = true
 	GameState.modal_active = true
+
+	# 升级面板弹出音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_levelup()
 
 
 func _create_card(data: Dictionary, index: int) -> Control:
@@ -468,24 +475,29 @@ func _create_card(data: Dictionary, index: int) -> Control:
 		new_label.modulate = Color(0.4, 0.8, 1.0)
 		new_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		vbox.add_child(new_label)
-	elif data.get("type") == "weapon_upgrade" and data.get("level", 1) >= 7:
-		var max_label = Label.new()
-		max_label.text = "⬆ MAX"
-		max_label.add_theme_font_size_override("font_size", 11)
-		max_label.modulate = Color(0.9, 0.6, 0.2)
-		max_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		vbox.add_child(max_label)
+	elif data.get("type") == "weapon_upgrade":
+		var wid: String = data.get("id", "")
+		var current_level: int = int(GameState.active_weapons.get(wid, 1))
+		if current_level >= 7:
+			var max_label = Label.new()
+			max_label.text = "⬆ MAX"
+			max_label.add_theme_font_size_override("font_size", 11)
+			max_label.modulate = Color(0.9, 0.6, 0.2)
+			max_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			vbox.add_child(max_label)
 
 	# hover 效果
 	panel.mouse_entered.connect(func():
 		style.border_color = Color(0.9, 0.75, 0.2, 1) if is_rare else Color(0.6, 0.8, 1.0, 1)
 		style.bg_color = Color(0.2, 0.25, 0.35, 0.98)
 		style.shadow_size = 4
+		create_tween().tween_property(panel, "scale", Vector2(1.05, 1.05), 0.1)
 	)
 	panel.mouse_exited.connect(func():
 		style.border_color = Color(0.7, 0.55, 0.1, 1) if is_rare else Color(0.4, 0.5, 0.7, 1)
 		style.bg_color = Color(0.15, 0.18, 0.25, 0.95)
 		style.shadow_size = 0
+		create_tween().tween_property(panel, "scale", Vector2.ONE, 0.1)
 	)
 
 	panel.gui_input.connect(func(ev):
@@ -520,6 +532,10 @@ func _select_card(index: int) -> void:
 	if index < 0 or index >= _cards.size():
 		return
 
+	# 选卡确认音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_ui_click()
+
 	var card = _cards[index]
 
 	# 新武器 + 满槽 → 弹出替换弹窗
@@ -544,21 +560,29 @@ func _apply_choice(data: Dictionary) -> void:
 						# 应用词条
 						if data.has("affix") and data["affix"] is Dictionary:
 							child.add_affix(data["affix"])
+			SaveSystem.record_weapon_usage(wid)
 		"new_weapon":
 			var wid = data["id"]
 			GameState.active_weapons[wid] = 1
 			var player = get_tree().get_nodes_in_group("player")
 			if player.size() > 0:
 				_add_weapon_to_player(player[0], wid)
+			SaveSystem.record_weapon_usage(wid)
 		"passive":
 			var pid = data["id"]
 			var cur_lv = GameState.active_passives.get(pid, 0)
 			GameState.active_passives[pid] = cur_lv + 1
 			_apply_passive(pid)
 		"skip":
-			GameState.current_exp += GameState.exp_to_next_level * 0.3
+			# 通过 EventBus 走 HUD 经验处理，确保 UI 刷新与升级检测一致
+			EventBus.exp_collected.emit(int(GameState.exp_to_next_level * 0.3))
 
 	EventBus.upgrade_selected.emit(data["id"])
+	# 超武合成检查由 upgrade_selected 信号统一触发（_on_upgrade_selected_synthesis）
+
+
+func _on_upgrade_selected_synthesis(_id: String) -> void:
+	# 由 upgrade_selected 信号触发，涵盖选卡与作弊菜单升级路径
 	_check_super_weapon_synthesis()
 
 
@@ -656,7 +680,7 @@ func _show_weapon_replace_dialog(new_weapon_card: Dictionary) -> void:
 	cancel_btn.add_theme_font_size_override("font_size", 14)
 	cancel_btn.custom_minimum_size = Vector2(180, 40)
 	cancel_btn.pressed.connect(func():
-		GameState.current_exp += GameState.exp_to_next_level * 0.3
+		EventBus.exp_collected.emit(int(GameState.exp_to_next_level * 0.3))
 		_replace_cancel()
 	)
 	vbox.add_child(cancel_btn)
@@ -827,6 +851,9 @@ func _synthesize_mega(rid: String, recipe: Dictionary) -> void:
 	# 特效
 	EventBus.super_weapon_synthesized.emit(recipe["name"])
 	EventBus.screen_shake_requested.emit(12.0, 0.8)
+	# Mega 超武合成音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_super_weapon()
 
 	# 根据配方应用特殊效果
 	match rid:
@@ -896,6 +923,9 @@ func _synthesize_super(weapon_id: String, super_name: String) -> void:
 	GameState.super_weapons.append(weapon_id)
 	EventBus.super_weapon_synthesized.emit(super_name)
 	EventBus.screen_shake_requested.emit(8.0, 0.5)
+	# 超武合成音效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_super_weapon()
 
 	GameState.active_weapons[weapon_id] = 8
 	var player = get_tree().get_nodes_in_group("player")
@@ -906,10 +936,18 @@ func _synthesize_super(weapon_id: String, super_name: String) -> void:
 
 
 func _hide_panel() -> void:
-	visible = false
 	get_tree().paused = false
 	GameState.is_paused = false
 	GameState.modal_active = false
+	# 面板淡出后隐藏
+	if _hide_tween:
+		_hide_tween.kill()
+	_hide_tween = create_tween()
+	_hide_tween.tween_property(_overlay, "modulate:a", 0.0, 0.15)
+	_hide_tween.tween_callback(func():
+		visible = false
+		_overlay.modulate.a = 1.0
+	)
 
 
 func _get_weapon_upgrade_desc(weapon_id: String, next_lv: int) -> String:

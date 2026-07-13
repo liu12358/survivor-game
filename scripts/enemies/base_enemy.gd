@@ -66,6 +66,7 @@ var _summon_timer: float = 0.0        # 召唤词条计时
 var _dot_dps: float = 0.0             # 灼烧/中毒每秒伤害
 var _dot_time: float = 0.0
 var _dot_tick: float = 0.0
+var _slow_tween: Tween = null               # 减速 Tween 引用（reset_for_pool 时 kill）
 
 # 接触伤害计时器
 var _contact_damage_timer: float = 0.0
@@ -76,11 +77,20 @@ const CONTACT_DAMAGE_RANGE: float = 42.0
 # 对象池引用（池化怪物专用，非池化 = null）
 var _pool_ref: Node = null
 
+# 对象池：缓存初始数值，避免 reset_for_pool 后叠加倍率
+var _base_max_health: float = 0.0
+var _base_move_speed: float = 0.0
+var _death_tween: Tween = null             # 死亡动画引用（reset_for_pool 时 kill，避免残留回调误释放）
+
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var hit_flash_timer: Timer = $HitFlashTimer
 
 
 func _ready() -> void:
+	if _base_max_health == 0.0:
+		_base_max_health = max_health
+	if _base_move_speed == 0.0:
+		_base_move_speed = move_speed
 	current_health = max_health * elite_hp_mult
 	state = EnemyState.CHASING
 	_angle_offset = randf_range(-0.15, 0.15)
@@ -194,7 +204,7 @@ func _clamp_to_boundary() -> void:
 
 
 func _clamp_to_boundary_after_slide() -> void:
-	var boundary_radius: float = 780.0
+	var boundary_radius: float = 800.0
 	var dist = global_position.length()
 	if dist > boundary_radius:
 		global_position = global_position.normalized() * boundary_radius
@@ -281,11 +291,15 @@ func _check_contact_damage(delta: float) -> void:
 	if not p or not is_instance_valid(p):
 		return
 	if p.is_dead:
+		# 玩家死亡时重置计时器，避免复活后瞬间被打
+		_contact_damage_timer = 0.0
 		return
+	# 计时器到达间隔：无论是否在攻击范围内都重置，
+	# 避免玩家不在范围时计时器持续累积导致进入范围瞬间受伤
+	_contact_damage_timer = 0.0
 	if global_position.distance_to(p.global_position) < CONTACT_DAMAGE_RANGE:
 		if p.has_method("take_damage"):
 			p.take_damage(damage * elite_damage_mult)
-		_contact_damage_timer = 0.0
 
 
 func _get_player() -> Node2D:
@@ -315,8 +329,8 @@ func take_damage(amount: float, is_crit: bool = false) -> void:
 	if knockback_resistance < 1.0:
 		var p = _get_player()
 		if p:
-			var away_dir = global_position.direction_to(p.global_position)
-			velocity = -away_dir * move_speed * 0.5
+			var toward_player_dir = global_position.direction_to(p.global_position)
+			velocity = -toward_player_dir * move_speed * 0.5
 		state = EnemyState.HURT
 		retreat_timer = 0.2
 
@@ -374,11 +388,13 @@ func _die() -> void:
 	remove_from_group("enemy")
 
 	# 死亡动画：缩小+淡出
-	var t = create_tween()
-	t.set_parallel(true)
-	t.tween_property(self, "scale", Vector2.ZERO, 0.15).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_BACK)
-	t.tween_property(self, "modulate:a", 0.0, 0.15)
-	t.chain().tween_callback(func():
+	if _death_tween and _death_tween.is_valid():
+		_death_tween.kill()
+	_death_tween = create_tween()
+	_death_tween.set_parallel(true)
+	_death_tween.tween_property(self, "scale", Vector2.ZERO, 0.15).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_BACK)
+	_death_tween.tween_property(self, "modulate:a", 0.0, 0.15)
+	_death_tween.chain().tween_callback(func():
 		if _pool_ref and _pool_ref.has_method("release"):
 			_pool_ref.release(self)
 		else:
@@ -401,6 +417,10 @@ func _split_on_death() -> void:
 		child_enemy.current_health = child_enemy.max_health
 		get_tree().current_scene.add_child.call_deferred(child_enemy)   # 同 B-10：延迟入树
 		EventBus.enemy_spawned.emit(child_enemy)
+		# 注册到生成器活跃列表，否则不会被 _cleanup_dead_enemies 跟踪
+		var spawner = get_tree().get_first_node_in_group("spawner")
+		if spawner and spawner.has_method("register_enemy"):
+			spawner.register_enemy(child_enemy)
 
 
 func _event_explode() -> void:
@@ -472,18 +492,23 @@ func apply_slow(amount: float, duration: float) -> void:
 	_slow_active = true
 	var orig := move_speed
 	move_speed *= (1.0 - amount)
-	var t := create_tween()
-	t.tween_interval(duration)
-	t.tween_callback(func():
+	if _slow_tween and _slow_tween.is_valid():
+		_slow_tween.kill()
+	_slow_tween = create_tween()
+	_slow_tween.tween_interval(duration)
+	_slow_tween.tween_callback(func():
 		move_speed = orig
 		_slow_active = false
+		_slow_tween = null
 	)
 
 
 # 持续伤害（灼烧/中毒），DOT 不暴击、紫色数字（GDD 8.2）
 func apply_dot(dps: float, duration: float) -> void:
-	_dot_dps = max(_dot_dps, dps)
-	_dot_time = max(_dot_time, duration)
+	# 用最新的 DOT 直接替换，避免 dps 与 duration 解耦叠加：
+	# 旧实现 max(dps) + max(duration) 会让弱 DOT 延长强 DOT 的持续时间
+	_dot_dps = dps
+	_dot_time = duration
 
 
 func _process_dot(delta: float) -> void:
@@ -519,6 +544,10 @@ func _summon_minion() -> void:
 	m.global_position = global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
 	get_tree().current_scene.add_child.call_deferred(m)
 	EventBus.enemy_spawned.emit(m)
+	# 注册到生成器活跃列表
+	var spawner = get_tree().get_first_node_in_group("spawner")
+	if spawner and spawner.has_method("register_enemy"):
+		spawner.register_enemy(m)
 
 
 # ─── 多米诺击退连锁 ───
@@ -540,17 +569,37 @@ func _domino_push() -> void:
 
 func reset_for_pool() -> void:
 	"""从池中重新激活时重置状态"""
+	# 恢复初始数值，避免 spawner 每次生成时叠加倍率
+	max_health = _base_max_health
+	move_speed = _base_move_speed
+	# 重置精英属性，避免池化后残留/叠加
+	elite_hp_mult = 1.0
+	elite_damage_mult = 1.0
+	elite_exp_mult = 1.0
+	elite_affix = ""
+	is_elite = false
 	current_health = max_health * elite_hp_mult
 	state = EnemyState.CHASING
-	is_elite = false
 	is_retreating = false
+	retreat_timer = 0.0
 	_is_charging = false
+	_charge_timer = 0.0
+	_ranged_timer = 0.0
+	_summon_timer = 0.0
 	_slow_active = false
 	_dot_dps = 0.0
 	_dot_time = 0.0
 	_dot_tick = 0.0
 	extra_affixes.clear()
 	_contact_damage_timer = 0.0
+	# 杀死残留死亡 Tween，避免重新激活后回调误触发 release/queue_free
+	if _death_tween and _death_tween.is_valid():
+		_death_tween.kill()
+		_death_tween = null
+	# 杀死残留减速 Tween，避免回调用过期 orig 覆盖 reset 后的 move_speed
+	if _slow_tween and _slow_tween.is_valid():
+		_slow_tween.kill()
+		_slow_tween = null
 	if sprite:
 		sprite.modulate = Color.WHITE
 		sprite.scale = Vector2.ONE

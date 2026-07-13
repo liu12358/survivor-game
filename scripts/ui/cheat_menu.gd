@@ -154,6 +154,18 @@ func _build() -> void:
 	# 下方放一个确认按钮
 	_add_btn(vb, "✅ 刷出选中武器", _cheat_weapon, Color(0.3, 0.5, 0.6))
 
+	# ─── 超武区 ───
+	vb.add_child(_make_separator())
+
+	var sw_title := Label.new()
+	sw_title.text = "💠 超武"
+	sw_title.add_theme_font_size_override("font_size", 13)
+	sw_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sw_title.modulate = Color(0.9, 0.6, 1.0)
+	vb.add_child(sw_title)
+
+	_add_btn(vb, "⭐ 选中武器变超武", _cheat_super_weapon, Color(0.6, 0.3, 0.7))
+
 	# ─── 浮动开关按钮 ───
 	var toggle_btn = Button.new()
 	toggle_btn.text = "🐞"
@@ -280,6 +292,7 @@ func _cheat_kill() -> void:
 func _cheat_unlock() -> void:
 	SaveSystem.unlock_character("argo")
 	SaveSystem.unlock_character("selene")
+	SaveSystem.unlock_character("little_fried_egg")
 
 
 func _cheat_weapon() -> void:
@@ -293,6 +306,9 @@ func _cheat_weapon() -> void:
 		return
 
 	if GameState.active_weapons.has(wid):
+		# 武器最大等级上限 8（含超武），不可超过
+		if GameState.active_weapons[wid] >= 8:
+			return
 		GameState.active_weapons[wid] += 1
 		for child in player.get_children():
 			var child_id = child.get("weapon_id") if child.has_method("get") else ""
@@ -309,6 +325,48 @@ func _cheat_weapon() -> void:
 		var weapon: Node = load(path).instantiate()
 		player.add_child(weapon)
 		GameState.active_weapons[wid] = 1
+		SaveSystem.record_weapon_usage(wid)
+
+	# 刷新 HUD 装备栏
+	EventBus.upgrade_selected.emit(wid)
+
+
+func _cheat_super_weapon() -> void:
+	var idx = _weapon_option.selected
+	if idx < 0 or idx >= WEAPON_LIST.size():
+		return
+	var wid: String = WEAPON_LIST[idx][0]
+
+	var player := get_tree().get_first_node_in_group("player")
+	if not player:
+		return
+
+	# 武器未拥有时先创建
+	if not GameState.active_weapons.has(wid):
+		var path := "res://scenes/weapons/%s.tscn" % wid
+		if not ResourceLoader.exists(path):
+			return
+		var weapon: Node = load(path).instantiate()
+		player.add_child(weapon)
+		GameState.active_weapons[wid] = 1
+		SaveSystem.record_weapon_usage(wid)
+
+	# 找到武器实例
+	var weapon_instance = null
+	for child in player.get_children():
+		var child_id = child.get("weapon_id") if child.has_method("get") else ""
+		if child_id == wid:
+			weapon_instance = child
+			break
+	if not weapon_instance:
+		return
+
+	# 升级到 Lv8（超武等级）
+	while weapon_instance.level < 8:
+		weapon_instance.level_up()
+	GameState.active_weapons[wid] = 8
+	if not GameState.super_weapons.has(wid):
+		GameState.super_weapons.append(wid)
 
 	# 刷新 HUD 装备栏
 	EventBus.upgrade_selected.emit(wid)

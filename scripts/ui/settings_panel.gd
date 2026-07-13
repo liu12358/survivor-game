@@ -33,10 +33,30 @@ func _create_ui() -> void:
 
 	# 主音量滑块
 	var vol = _add_slider_row(vbox, "🔊 主音量", "master_volume", 0.0, 1.0)
-	vol.value = _s("master_volume", 0.8)
 	vol.value_changed.connect(func(v):
+		AudioManager.set_master_volume(v)
 		SaveSystem.set_setting("master_volume", v)
-		AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), linear_to_db(v) if v > 0 else -80)
+	)
+
+	# BGM 音量滑块
+	var bgm_vol = _add_slider_row(vbox, "🎵 BGM音量", "bgm_volume", 0.0, 1.0)
+	bgm_vol.value_changed.connect(func(v):
+		AudioManager.set_bgm_volume(v)
+		SaveSystem.set_setting("bgm_volume", v)
+	)
+
+	# SFX 音效滑块
+	var sfx_vol = _add_slider_row(vbox, "💥 SFX音效", "sfx_volume", 0.0, 1.0)
+	sfx_vol.value_changed.connect(func(v):
+		AudioManager.set_sfx_volume(v)
+		SaveSystem.set_setting("sfx_volume", v)
+	)
+
+	# UI 音效滑块
+	var ui_vol = _add_slider_row(vbox, "🔔 UI音效", "ui_volume", 0.0, 1.0)
+	ui_vol.value_changed.connect(func(v):
+		AudioManager.set_ui_volume(v)
+		SaveSystem.set_setting("ui_volume", v)
 	)
 
 	# 屏幕震动
@@ -69,10 +89,8 @@ func _create_ui() -> void:
 	vbox.add_child(back_btn)
 	back_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn"))
 
-	# 初始化音量
-	var init_vol = _s("master_volume", 0.8)
-	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"),
-		linear_to_db(init_vol) if init_vol > 0 else -80)
+	# 初始化音量：统一由 AudioManager 从存档应用
+	AudioManager.apply_saved_volumes()
 
 
 func _add_slider_row(parent: Control, label_text: String, key: String, min_v: float, max_v: float) -> HSlider:

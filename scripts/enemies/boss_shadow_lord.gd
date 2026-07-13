@@ -6,8 +6,8 @@ extends CharacterBody2D
 enum BossPhase { PHASE1, PHASE2, PHASE3, DYING, DEAD }
 
 const TOTAL_HP: float = 800.0
-const PHASE2_HP: float = 480.0   # 60%
-const PHASE3_HP: float = 240.0   # 30%
+const PHASE2_HP: float = 400.0   # 50%
+const PHASE3_HP: float = 200.0   # 25%
 const MOVE_SPEED: float = 40.0
 
 @export var current_hp: float = TOTAL_HP
@@ -30,7 +30,6 @@ func _ready() -> void:
 	current_hp = TOTAL_HP
 	phase = BossPhase.PHASE1
 	_enter_phase1()
-	EventBus.boss_spawned.emit()
 	EventBus.boss_hp_changed.emit(TOTAL_HP, TOTAL_HP)
 
 
@@ -142,6 +141,9 @@ func _die() -> void:
 	phase = BossPhase.DYING
 	sprite.modulate = Color(0.3, 0.3, 0.3)
 	EventBus.screen_shake_requested.emit(15.0, 0.8)
+	# BOSS 死亡音效（参考 base_enemy._die 的位置：在 emit 之前播放）
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_sfx_boss_die()
 	EventBus.boss_killed.emit()
 	EventBus.enemy_killed.emit("boss_shadow_lord", global_position, 500, 50)
 	_drop_feather()
@@ -213,9 +215,10 @@ func _spawn_projectile(dir: Vector2, speed: float, dmg: float, col: Color) -> vo
 			proj.queue_free()
 	)
 
-	# 移动
+	# 移动（用 global_position，因为 proj 已 add_child 到 current_scene，
+	# 但 boss 自身可能有位移/缩放，用 global 避免局部坐标偏差）
 	var move_tween = create_tween()
-	move_tween.tween_property(proj, "position", proj.position + dir * 700.0, 700.0 / speed)
+	move_tween.tween_property(proj, "global_position", proj.global_position + dir * 700.0, 700.0 / speed)
 	move_tween.tween_callback(proj.queue_free)
 
 	# 5秒后强制销毁
@@ -230,20 +233,39 @@ func _summon_minions() -> void:
 	if not scene:
 		return
 	for i in range(3):
-		var pos = global_position + Vector2(randf_range(-80, 80), randf_range(-80, 80))
+		var pos = global_position + Vector2(GameState.rng.randf_range(-80, 80), GameState.rng.randf_range(-80, 80))
 		var slime = scene.instantiate()
 		slime.global_position = pos
 		get_tree().current_scene.add_child(slime)
 		EventBus.enemy_spawned.emit(slime)
+		# 注册到生成器活跃列表，否则不会被 _cleanup_dead_enemies 跟踪
+		var spawner = get_tree().get_first_node_in_group("spawner")
+		if spawner and spawner.has_method("register_enemy"):
+			spawner.register_enemy(slime)
 
 
-# 击杀 BOSS 掉落复活羽毛（D-6）
+# 击杀 BOSS 掉落复活羽毛（D-6）— 复用对象池
 func _drop_feather() -> void:
-	var gem_scene = load("res://scenes/enemies/exp_gem.tscn")
-	if not gem_scene:
-		return
-	var f = gem_scene.instantiate()
-	f.pickup_type = "feather"
-	f.exp_amount = 0
-	f.global_position = global_position
-	get_tree().current_scene.add_child.call_deferred(f)
+	var spawner = get_tree().get_first_node_in_group("spawner")
+	var gem: Node = null
+	if spawner and spawner.has_method("spawn_exp_gem"):
+		spawner.spawn_exp_gem(global_position, 0, 0)
+		# spawn_exp_gem 内部会创建 feather 类型宝石，但默认创建的是 exp 类型
+		# 需手动设置最后创建的宝石为 feather 类型
+		var all_gems = get_tree().get_nodes_in_group("gem")
+		if all_gems.size() > 0:
+			gem = all_gems[-1]
+			if gem is ExpGem:
+				gem.pickup_type = "feather"
+				gem.exp_amount = 0
+				gem.gold_amount = 0
+				gem._set_color_by_type()
+	else:
+		var gem_scene = load("res://scenes/enemies/exp_gem.tscn")
+		if not gem_scene:
+			return
+		gem = gem_scene.instantiate()
+		gem.pickup_type = "feather"
+		gem.exp_amount = 0
+		gem.global_position = global_position
+		get_tree().current_scene.add_child.call_deferred(gem)

@@ -21,41 +21,62 @@ func prewarm(count: int) -> void:
 		_pool.append(obj)
 
 
+func _set_collision_disabled(obj: Node, disabled: bool) -> void:
+	for child in obj.get_children():
+		if child is CollisionShape2D:
+			child.set_deferred("disabled", disabled)
+		elif child is CollisionPolygon2D:
+			child.set_deferred("disabled", disabled)
+
+
 func _create_instance() -> Node:
 	var obj = scene.instantiate()
 	add_child(obj)
 	obj.process_mode = Node.PROCESS_MODE_DISABLED
 	obj.visible = false
-	if obj is CollisionObject2D:
-		(obj as CollisionObject2D).set_deferred("disabled", true)
+	# 预热对象移出功能组，避免被磁吸/武器/合并逻辑误判为活跃对象
+	obj.remove_from_group("gem")
+	obj.remove_from_group("enemy")
+	# 禁用碰撞形状（CollisionObject2D 无 disabled 属性，set_deferred 无效）
+	_set_collision_disabled(obj, true)
+	if obj is Area2D:
+		obj.monitoring = false
+		obj.monitorable = false
 	return obj
 
 
 func acquire() -> Node:
+	var obj: Node
 	if _pool.is_empty():
+		# 池空时不偷取仍在场景中运行的活跃对象，而是新建实例（可能临时超过 max_size）
 		if _active.size() >= max_size:
-			# 回收最老的
-			var oldest = _active[0]
-			release(oldest)
-		else:
-			_pool.append(_create_instance())
-
-	var obj = _pool.pop_back()
+			push_warning("ObjectPool: max_size exceeded, creating new instance")
+		obj = _create_instance()
+	else:
+		obj = _pool.pop_back()
 	obj.process_mode = Node.PROCESS_MODE_INHERIT
 	obj.visible = true
-	if obj is CollisionObject2D:
-		(obj as CollisionObject2D).set_deferred("disabled", false)
+	_set_collision_disabled(obj, false)
+	if obj is Area2D:
+		obj.monitoring = true
+		obj.monitorable = true
 	_active.append(obj)
 	return obj
 
 
 func release(obj: Node) -> void:
-	if obj in _active:
-		_active.erase(obj)
+	# 双重释放守卫：已在池中或不在活跃集合中则直接返回，避免同一对象被多次入池
+	if obj in _pool:
+		return
+	if not _active.has(obj):
+		return  # 已释放或从未 acquire
+	_active.erase(obj)
 	obj.process_mode = Node.PROCESS_MODE_DISABLED
 	obj.visible = false
-	if obj is CollisionObject2D:
-		(obj as CollisionObject2D).set_deferred("disabled", true)
+	_set_collision_disabled(obj, true)
+	if obj is Area2D:
+		obj.monitoring = false
+		obj.monitorable = false
 	_pool.append(obj)
 
 

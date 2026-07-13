@@ -94,7 +94,7 @@ func _damage_tick(delta: float) -> void:
 				EventBus.damage_number_requested.emit(enemy.global_position + Vector2(0, -16), dmg, is_crit, 1)
 				if (slow_enabled or freeze_enabled) and enemy.has_method("apply_slow"):
 					enemy.apply_slow(0.3, 2.0)
-				_hit_cd[id] = HIT_INTERVAL
+				_hit_cd[id] = HIT_INTERVAL / attack_speed
 
 
 func _apply_level_stats() -> void:

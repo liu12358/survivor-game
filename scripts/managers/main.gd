@@ -17,16 +17,20 @@ const INFINITE_BOSS_INTERVAL: float = 300.0  # 无尽模式每5分钟刷BOSS
 var _boss_spawned: bool = false
 var _boss_countdown_active: bool = false
 var _game_ended: bool = false
+var _game_settled: bool = false   # 本局是否已结算（防止"继续无尽"后二次结算）
 var _total_game_time: float = 0.0
 var _next_boss_time: float = 0.0
 var _star_timer: float = 0.0
 var _sword_wave_active: bool = false   # 剑气纵横防递归
+var _last_countdown_tick: int = -1     # BOSS 倒计时去重，避免同值信号刷屏
 
 # 震屏
 var _shake_amplitude: float = 0.0
 var _shake_duration: float = 0.0
 var _shake_priority: float = 0.0
 var _camera_original_pos: Vector2
+var _shake_elapsed: float = 0.0        # 当前震屏已耗时
+var _shake_total_duration: float = 0.0 # 当前震屏总时长（用于线性衰减）
 
 # Camera Breathing — 动态视场收缩
 const CAMERA_ZOOM_DEFAULT: float = 1.0
@@ -38,15 +42,19 @@ var _epic_zoom_timer: float = 0.0
 var _epic_zoom_active: bool = false
 
 const GRID_SIZE: float = 96.0
-const MAP_RADIUS: float = 800.0
+var MAP_RADIUS: float = 800.0
+var _map_config: Dictionary = {}
 
-# 背景装饰种子（固定，每局相同）
+# 障碍物节点容器
+var _obstacles_node: Node2D = null
 var _bg_seed: int = 0
 var _bg_texture: ImageTexture = null
-var _bg_regeneration_needed: bool = true
 
 
 func _ready() -> void:
+	# 加载当前地图配置
+	_map_config = GameState.get_current_map_config()
+	MAP_RADIUS = _map_config.get("radius", 800.0)
 	# Main 保持 PAUSABLE（默认），确保暂停时玩家/敌人/子弹等子节点全部冻结（B-13）。
 	# ESC 暂停切换改由 PauseMenu（ALWAYS）处理。
 	_setup_pools()
@@ -54,12 +62,29 @@ func _ready() -> void:
 	_setup_cheat()
 	_setup_glow()
 	_setup_boundary()
+	_setup_obstacles_container()
+	_setup_tutorial()
+	_setup_performance_panel()
+	_setup_screenshot_manager()
 	# P-2：一次性生成背景纹理缓存
-	_bg_regeneration_needed = true
 	_generate_bg_texture()
 	_start_game()
 	# 强制重绘
 	queue_redraw()
+
+
+func _setup_performance_panel() -> void:
+	if get_tree().get_first_node_in_group("performance_panel"):
+		return
+	var pp = load("res://scripts/ui/performance_panel.gd").new()
+	add_child(pp)
+
+
+func _setup_screenshot_manager() -> void:
+	if get_tree().get_first_node_in_group("screenshot_manager"):
+		return
+	var sm = load("res://scripts/ui/screenshot_manager.gd").new()
+	add_child(sm)
 
 
 func _setup_boundary() -> void:
@@ -73,6 +98,81 @@ func _setup_boundary() -> void:
 	shape.shape = circle
 	body.add_child(shape)
 	add_child(body)
+
+
+func _setup_obstacles_container() -> void:
+	_obstacles_node = Node2D.new()
+	_obstacles_node.name = "Obstacles"
+	add_child(_obstacles_node)
+
+
+func _generate_obstacles() -> void:
+	if not _obstacles_node:
+		return
+	# 清除旧障碍物
+	for child in _obstacles_node.get_children():
+		child.queue_free()
+
+	var obs_count = int(_map_config.get("obstacle_count", 0))
+	if obs_count <= 0:
+		return
+
+	var rng = GameState.rng
+	var obs_min = _map_config.get("obstacle_min_size", 40.0)
+	var obs_max = _map_config.get("obstacle_max_size", 80.0)
+	var obs_color = _map_config.get("obstacle_color", Color(0.2, 0.2, 0.2))
+	var safe_radius = MAP_RADIUS - obs_max * 1.5  # 障碍物不贴边界
+
+	for i in range(obs_count):
+		var angle = rng.randf() * TAU
+		var dist = rng.randf_range(100.0, max(100.0, safe_radius))
+		var pos = Vector2(cos(angle), sin(angle)) * dist
+
+		var w = rng.randf_range(obs_min, obs_max)
+		var h = rng.randf_range(obs_min, obs_max)
+
+		var body = StaticBody2D.new()
+		body.name = "Obstacle_%d" % i
+		body.collision_layer = 1 << 3  # layer 4 = obstacle
+		body.collision_mask = 1 | 2    # 碰撞玩家+敌人
+
+		var shape = CollisionShape2D.new()
+		var rect = RectangleShape2D.new()
+		rect.size = Vector2(w, h)
+		shape.shape = rect
+		body.add_child(shape)
+
+		# 可视化：用 ColorRect 表现障碍物
+		var vis = ColorRect.new()
+		vis.color = obs_color
+		vis.size = Vector2(w, h)
+		vis.position = Vector2(-w / 2.0, -h / 2.0)
+		vis.z_index = -1
+		body.add_child(vis)
+
+		# 边框高亮
+		var border = ColorRect.new()
+		border.color = obs_color.lightened(0.2)
+		border.size = Vector2(w, 4)
+		border.position = Vector2(-w / 2.0, -h / 2.0)
+		border.z_index = -1
+		body.add_child(border)
+		var border_b = border.duplicate()
+		border_b.position = Vector2(-w / 2.0, h / 2.0 - 4)
+		body.add_child(border_b)
+		var border_l = ColorRect.new()
+		border_l.color = obs_color.lightened(0.15)
+		border_l.size = Vector2(4, h)
+		border_l.position = Vector2(-w / 2.0, -h / 2.0)
+		border_l.z_index = -1
+		body.add_child(border_l)
+		var border_r = border_l.duplicate()
+		border_r.position = Vector2(w / 2.0 - 4, -h / 2.0)
+		body.add_child(border_r)
+
+		body.global_position = pos
+		body.rotation = rng.randf() * TAU  # 随机旋转
+		_obstacles_node.add_child(body)
 
 
 func _setup_glow() -> void:
@@ -123,7 +223,8 @@ func _setup_vignette() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
-		if not GameState.is_paused and not _game_ended:
+		# 模态面板（升级/结算）显示中不触发自动暂停，避免叠加卡死
+		if not GameState.is_paused and not _game_ended and not GameState.modal_active:
 			_pause_game()
 
 
@@ -134,7 +235,7 @@ func _draw() -> void:
 	else:
 		_draw_dungeon_background()  # 兜底
 
-	# 边界光环
+	# 边界光环（使用当前 MAP_RADIUS）
 	draw_arc(Vector2.ZERO, MAP_RADIUS - 2, 0, TAU, 96, Color(0.6, 0.5, 0.3, 0.9), 4.0)
 	draw_arc(Vector2.ZERO, MAP_RADIUS, 0, TAU, 96, Color(0.5, 0.4, 0.25, 0.7), 3.0)
 
@@ -188,12 +289,14 @@ func _generate_bg_texture() -> void:
 	img.fill(Color(0, 0, 0, 0))
 	var center := Vector2(size / 2.0, size / 2.0)
 
+	var bg_color = _map_config.get("bg_color", Color(0.12, 0.10, 0.14))
+	var grid_color = _map_config.get("grid_color", Color(0.18, 0.16, 0.22, 0.5))
+	var tile_size = 48.0
+
 	# 1. 底色圆形
-	_fill_circle_on_img(img, center, MAP_RADIUS, Color(0.12, 0.10, 0.14))
+	_fill_circle_on_img(img, center, MAP_RADIUS, bg_color)
 
 	# 2. 石砖网格线
-	var grid_color = Color(0.18, 0.16, 0.22, 0.5)
-	var tile_size = 48.0
 	var half_tiles := int(MAP_RADIUS / tile_size)
 	for i in range(-half_tiles, half_tiles + 1):
 		var offset = float(i) * tile_size
@@ -206,9 +309,10 @@ func _generate_bg_texture() -> void:
 		if half_w > 0:
 			_draw_line_to_img(img, Vector2(center.x - half_w, y), Vector2(center.x + half_w, y), grid_color)
 
-	# 3. 砖块装饰
+	# 3. 砖块装饰（固定种子）
 	var rng = RandomNumberGenerator.new()
 	rng.seed = 42
+	var brick_color_base = bg_color.lightened(0.08)
 	for k in range(40):
 		var angle = rng.randf() * TAU
 		var dist = rng.randf_range(50, MAP_RADIUS * 0.8)
@@ -216,15 +320,20 @@ func _generate_bg_texture() -> void:
 		var brick_size = rng.randf_range(20, 40)
 		var shade = rng.randf_range(0.14, 0.20)
 		_fill_rect_on_img(img, Rect2(pos.x - brick_size / 2, pos.y - brick_size / 2, brick_size, brick_size),
-			Color(shade, shade * 0.9, shade * 1.1))
+			brick_color_base * Color(shade * 2, shade * 2, shade * 2))
 
-	# 4. 火把光点
+	# 4. 火把光点（仅地牢/草原；水晶洞用冷光）
+	var light_color = Color(0.9, 0.6, 0.2, 0.6)
+	var glow_color = Color(0.5, 0.3, 0.1, 0.15)
+	if GameState.current_map == "crystal_cave":
+		light_color = Color(0.4, 0.6, 1.0, 0.6)
+		glow_color = Color(0.2, 0.3, 0.6, 0.15)
 	for j in range(15):
 		var angle = rng.randf() * TAU
 		var dist = rng.randf_range(100, MAP_RADIUS * 0.7)
 		var pos = center + Vector2(cos(angle), sin(angle)) * dist
-		_fill_circle_on_img(img, pos, 12, Color(0.5, 0.3, 0.1, 0.15))
-		_fill_circle_on_img(img, pos, 4, Color(0.9, 0.6, 0.2, 0.6))
+		_fill_circle_on_img(img, pos, 12, glow_color)
+		_fill_circle_on_img(img, pos, 4, light_color)
 
 	# 5. 中心出生点
 	_fill_circle_on_img(img, center, 50, Color(0.18, 0.16, 0.22, 0.3))
@@ -308,19 +417,20 @@ func _process(delta: float) -> void:
 	# BOSS倒计时 & 生成
 	if GameState.current_mode == "infinite":
 		# 无尽模式：每 INFINITE_BOSS_INTERVAL 秒刷BOSS
-		if not _boss_spawned and _total_game_time >= BOSS_SPAWN_TIME:
-			_spawn_boss()
-		elif _boss_spawned and _total_game_time >= _next_boss_time:
-			_boss_spawned = false  # 允许下一个BOSS
-			_next_boss_time = _total_game_time + INFINITE_BOSS_INTERVAL
+		# 生成前检查 "boss" 组是否为空，避免旧 BOSS 仍存活时叠加生成
+		if not _boss_spawned and _total_game_time >= _next_boss_time:
+			if get_tree().get_nodes_in_group("boss").size() == 0:
+				_spawn_boss()
 	else:
 		# 关卡模式：固定10分钟刷BOSS
 		if not _boss_spawned and _total_game_time > BOSS_SPAWN_TIME - BOSS_COUNTDOWN_START:
 			if not _boss_countdown_active:
 				_boss_countdown_active = true
 				EventBus.boss_countdown_started.emit(int(BOSS_SPAWN_TIME - _total_game_time))
-			var remaining = int(BOSS_SPAWN_TIME - _total_game_time)
-			if remaining > 0 and remaining % 5 == 0:
+			var remaining: int = int(BOSS_SPAWN_TIME - _total_game_time)
+			# 仅在 remaining 变化时发射信号，避免 60fps 同值刷屏
+			if remaining > 0 and remaining % 5 == 0 and remaining != _last_countdown_tick:
+				_last_countdown_tick = remaining
 				EventBus.boss_countdown_tick.emit(remaining)
 		if not _boss_spawned and _total_game_time >= BOSS_SPAWN_TIME:
 			_spawn_boss()
@@ -334,11 +444,20 @@ func _start_game() -> void:
 	GameState.reset_game_data()
 	GameState.init_rng(GameState.game_seed)
 	GameState.apply_meta_bonuses()
+	# 刷新地图配置（局前可能切换）
+	_map_config = GameState.get_current_map_config()
+	MAP_RADIUS = _map_config.get("radius", 800.0)
+	_generate_bg_texture()
+	_generate_obstacles()
+	# 边界形状同步新半径
+	_update_boundary_radius()
 	_boss_spawned = false
 	_boss_countdown_active = false
 	_game_ended = false
+	_game_settled = false
 	_total_game_time = 0.0
-	_next_boss_time = BOSS_SPAWN_TIME + INFINITE_BOSS_INTERVAL
+	_next_boss_time = BOSS_SPAWN_TIME
+	_last_countdown_tick = -1
 
 	# 强制重置全局状态（防止残留）
 	Engine.time_scale = 1.0
@@ -349,6 +468,7 @@ func _start_game() -> void:
 
 	# 确保玩家和摄像机在地图中心
 	if is_instance_valid(player):
+		player._spawn_protected = true
 		player.global_position = Vector2.ZERO
 		player.velocity = Vector2.ZERO
 	if is_instance_valid(camera):
@@ -393,10 +513,29 @@ func _start_game() -> void:
 	if not EventBus.boss_killed.is_connected(_on_boss_killed_epic):
 		EventBus.boss_killed.connect(_on_boss_killed_epic)
 
+	# 新手引导触发器
+	if not EventBus.player_moved.is_connected(_tut_on_first_move):
+		EventBus.player_moved.connect(_tut_on_first_move)
+	if not EventBus.player_level_up.is_connected(_tut_on_first_level):
+		EventBus.player_level_up.connect(_tut_on_first_level)
+	if not EventBus.enemy_spawned.is_connected(_tut_on_first_enemy):
+		EventBus.enemy_spawned.connect(_tut_on_first_enemy)
+	if not EventBus.gold_collected.is_connected(_tut_on_first_gold):
+		EventBus.gold_collected.connect(_tut_on_first_gold)
+	if not EventBus.boss_countdown_started.is_connected(_tut_on_first_boss):
+		EventBus.boss_countdown_started.connect(_tut_on_first_boss)
+
 	# 给初始武器
 	_grant_starting_weapon()
 
+	# 应用已保存的音量设置，确保游戏开始时音效生效
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").apply_saved_volumes()
+
 	EventBus.game_started.emit()
+
+	# 新手引导：首步立即弹出（不等玩家移动），避免玩家已开战才弹出指引
+	call_deferred("_start_tutorial_immediate")
 
 
 func _setup_pools() -> void:
@@ -425,6 +564,13 @@ func _setup_cheat() -> void:
 	add_child(cm)
 
 
+func _setup_tutorial() -> void:
+	if get_tree().get_first_node_in_group("tutorial"):
+		return
+	var tut = load("res://scripts/ui/tutorial_overlay.gd").new()
+	add_child(tut)
+
+
 func _grant_starting_weapon() -> void:
 	# 按角色给初始武器
 	var wid := "magic_bolt"
@@ -438,6 +584,7 @@ func _grant_starting_weapon() -> void:
 		var weapon = load(path).instantiate()
 		player.add_child(weapon)
 		GameState.active_weapons[wid] = 1
+	SaveSystem.record_weapon_usage(wid)
 	GameState.apply_character_passive()
 
 
@@ -550,6 +697,9 @@ func _magnet_all_gems() -> void:
 func _clear_all_enemies() -> void:
 	EventBus.screen_shake_requested.emit(6.0, 0.2)
 	for enemy in get_tree().get_nodes_in_group("enemy"):
+		# 跳过 BOSS，清屏炸弹不应秒杀 BOSS
+		if enemy.is_in_group("boss"):
+			continue
 		if is_instance_valid(enemy) and enemy.has_method("take_damage"):
 			enemy.take_damage(500.0)
 
@@ -648,6 +798,10 @@ func _on_boss_killed() -> void:
 		return
 	if GameState.current_mode == "level":
 		_game_victory()
+	else:
+		# 无尽模式：重置 BOSS 状态，安排下一个 BOSS 的生成时间
+		_boss_spawned = false
+		_next_boss_time = _total_game_time + INFINITE_BOSS_INTERVAL
 
 
 func _drop_mega_chest() -> void:
@@ -655,7 +809,7 @@ func _drop_mega_chest() -> void:
 	var chest := Sprite2D.new()
 	var tex := _make_chest_tex()
 	chest.texture = tex
-	chest.global_position = player.global_position + Vector2(randf_range(-60, 60), randf_range(-60, 60))
+	chest.global_position = player.global_position + Vector2(GameState.rng.randf_range(-60, 60), GameState.rng.randf_range(-60, 60))
 	chest.z_index = 10
 	get_tree().current_scene.add_child(chest)
 
@@ -678,11 +832,15 @@ func _drop_mega_chest() -> void:
 	# 检测玩家靠近拾取
 	var check := create_tween().set_loops()
 	check.tween_interval(0.2)
+	var die_ref: Tween = null
 	check.tween_callback(func():
 		if not is_instance_valid(chest):
 			return
 		if chest.global_position.distance_to(player.global_position) < 40.0:
 			flash.kill()
+			check.kill()
+			if die_ref and die_ref.is_valid():
+				die_ref.kill()
 			chest.queue_free()
 			GameState.mega_evolution_available = true
 			# 大字提示
@@ -691,6 +849,7 @@ func _drop_mega_chest() -> void:
 
 	# 30 秒后消失
 	var die := create_tween()
+	die_ref = die
 	die.tween_interval(30.0)
 	die.tween_callback(chest.queue_free)
 
@@ -731,6 +890,9 @@ func _make_chest_tex() -> Texture2D:
 
 
 func _game_victory() -> void:
+	if _game_settled:
+		return
+	_game_settled = true
 	_game_ended = true
 	GameState.is_game_over = true
 	# 胜利音效
@@ -747,7 +909,33 @@ func _game_victory() -> void:
 	EventBus.game_over.emit("victory", stats)
 
 
+# D-7：关卡模式击杀 BOSS 后，允许玩家通过结算面板"继续无尽"按钮转入无尽模式
+func _transition_to_endless() -> void:
+	# 恢复游戏循环
+	_game_ended = false
+	GameState.is_game_over = false
+	GameState.is_paused = false
+	GameState.modal_active = false
+	# 切换为无尽模式
+	GameState.current_mode = "infinite"
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	# 重置 BOSS 生成状态：5 分钟后刷新下一个 BOSS
+	_boss_spawned = false
+	_next_boss_time = _total_game_time + INFINITE_BOSS_INTERVAL
+
+
+# UI "继续无尽"按钮入口：从胜利结算转入无尽模式并隐藏结算面板
+func continue_as_endless() -> void:
+	_transition_to_endless()
+	if has_node("GameOverPanel"):
+		get_node("GameOverPanel").visible = false
+
+
 func _game_defeat() -> void:
+	if _game_settled:
+		return
+	_game_settled = true
 	_game_ended = true
 	GameState.is_game_over = true
 	var stats = {
@@ -774,6 +962,8 @@ func _show_revive_prompt() -> void:
 	player.current_health = player.max_health * 0.5
 	player.is_dead = false
 	player.state = Player.PlayerState.NORMAL
+	# 复活后给予 2 秒无敌帧，防止刚起身即被集火秒杀
+	player.invincible_timer = 2.0
 	if player.collision_shape:
 		player.collision_shape.set_deferred("disabled", false)
 	Engine.time_scale = 1.0   # 取消死亡慢动作残留
@@ -781,11 +971,13 @@ func _show_revive_prompt() -> void:
 
 
 func request_exit_game() -> void:
-	#
-	var penalty = _calculate_exit_penalty()
-	EventBus.player_exited_early.emit(_total_game_time, penalty)
+	# 暂停菜单"返回主菜单/重新开始"入口：提前结算本局，避免 total_games 不增长导致小煎蛋无法解锁
+	if _game_settled:
+		return
+	_game_settled = true
 	_game_ended = true
 	GameState.is_game_over = true
+	SaveSystem.add_game_result(GameState.gold_earned, GameState.kills, _total_game_time)
 
 
 func _calculate_exit_penalty() -> Dictionary:
@@ -822,17 +1014,30 @@ func _get_viewport_size() -> Vector2:
 	return get_viewport().get_visible_rect().size
 
 
+func _update_boundary_radius() -> void:
+	var boundary = get_node_or_null("MapBoundary")
+	if boundary:
+		var shape = boundary.get_node_or_null("CollisionShape2D")
+		if shape:
+			shape.shape.radius = MAP_RADIUS
+
+
 # ─── 震屏 ───
 
 func _on_screen_shake(amplitude: float, duration: float) -> void:
 	if not SaveSystem.get_setting("screen_shake"):
 		return
-	# 比较当前实际振幅（考虑衰减），而非原始振幅
-	var current_amplitude: float = _shake_amplitude * (_shake_duration / max(_shake_duration + 0.01, 0.01)) if _shake_duration > 0 else 0.0
+	# 计算当前实际振幅（按线性衰减后的剩余比例），避免被即将结束的弱震屏拦截强请求
+	var current_amplitude: float = 0.0
+	if _shake_total_duration > 0.0:
+		var decay_ratio: float = clampf(1.0 - (_shake_elapsed / _shake_total_duration), 0.0, 1.0)
+		current_amplitude = _shake_amplitude * decay_ratio
 	if amplitude <= current_amplitude:
 		return  # 不强于当前实际震动则忽略
 	_shake_amplitude = amplitude
 	_shake_duration = duration
+	_shake_total_duration = duration
+	_shake_elapsed = 0.0
 	_shake_priority = amplitude
 	_camera_original_pos = camera.position
 
@@ -848,18 +1053,18 @@ func _spawn_ambient_stars(delta: float) -> void:
 	var vs = get_viewport().get_visible_rect().size
 	for i in range(3):
 		var pos = cam_pos + Vector2(
-			randf_range(-vs.x * 0.7, vs.x * 0.7),
-			randf_range(-vs.y * 0.5, -vs.y * 0.3)
+			GameState.rng.randf_range(-vs.x * 0.7, vs.x * 0.7),
+			GameState.rng.randf_range(-vs.y * 0.5, -vs.y * 0.3)
 		)
 		var star = ColorRect.new()
-		star.color = Color(0.6, 0.8, 1.0, randf_range(0.3, 0.7))
+		star.color = Color(0.6, 0.8, 1.0, GameState.rng.randf_range(0.3, 0.7))
 		star.size = Vector2(2, 2)
 		star.pivot_offset = Vector2(1, 1)
 		get_tree().current_scene.add_child(star)
 		star.global_position = pos
 		var t = create_tween()
-		var d = randf_range(3.0, 6.0)
-		t.tween_property(star, "global_position:y", pos.y + randf_range(200, 400), d)
+		var d = GameState.rng.randf_range(3.0, 6.0)
+		t.tween_property(star, "global_position:y", pos.y + GameState.rng.randf_range(200, 400), d)
 		t.parallel().tween_property(star, "color:a", 0.0, d)
 		t.tween_callback(star.queue_free)
 
@@ -868,15 +1073,21 @@ func _update_screen_shake(delta: float) -> void:
 	if _shake_duration <= 0:
 		camera.position = _camera_original_pos
 		return
+	_shake_elapsed += delta
 	_shake_duration -= delta
-	var decay = _shake_duration / max(_shake_duration + 0.01, 0.01)
+	# 线性衰减：elapsed/total 从 0→1，decay 从 1→0
+	var decay: float = 0.0
+	if _shake_total_duration > 0.0:
+		decay = clampf(1.0 - (_shake_elapsed / _shake_total_duration), 0.0, 1.0)
 	camera.position = _camera_original_pos + Vector2(
-		randf_range(-_shake_amplitude, _shake_amplitude) * decay,
-		randf_range(-_shake_amplitude, _shake_amplitude) * decay
+		GameState.rng.randf_range(-_shake_amplitude, _shake_amplitude) * decay,
+		GameState.rng.randf_range(-_shake_amplitude, _shake_amplitude) * decay
 	)
 	if _shake_duration <= 0:
 		camera.position = _camera_original_pos
 		_shake_amplitude = 0.0
+		_shake_elapsed = 0.0
+		_shake_total_duration = 0.0
 
 
 # ─── 动态视场收缩 ───
@@ -947,3 +1158,79 @@ func _resume_game() -> void:
 	_on_game_resumed()
 	get_tree().paused = false
 	EventBus.game_resumed.emit()
+
+
+# ─── 新手引导触发器 ───
+
+func _get_tutorial() -> Node:
+	return get_tree().get_first_node_in_group("tutorial")
+
+
+func _start_tutorial_immediate() -> void:
+	var tut = _get_tutorial()
+	if not tut or not tut.has_method("should_show"):
+		return
+	if not tut.should_show("first_move"):
+		return
+	tut.start_tutorial()
+	# 断开事件触发器，避免后续重复弹出
+	EventBus.player_moved.disconnect(_tut_on_first_move)
+	EventBus.player_level_up.disconnect(_tut_on_first_level)
+	EventBus.enemy_spawned.disconnect(_tut_on_first_enemy)
+	EventBus.gold_collected.disconnect(_tut_on_first_gold)
+	EventBus.boss_countdown_started.disconnect(_tut_on_first_boss)
+
+
+func _tut_on_first_move(_pos: Vector2) -> void:
+	var tut = _get_tutorial()
+	if not tut or not tut.has_method("should_show"):
+		return
+	if not tut.should_show("first_move"):
+		return
+	tut.start_tutorial()
+	# 断开移动触发器，避免重复
+	EventBus.player_moved.disconnect(_tut_on_first_move)
+
+
+func _tut_on_first_level(_lv: int) -> void:
+	var tut = _get_tutorial()
+	if not tut or not tut.has_method("should_show"):
+		return
+	if not tut.should_show("first_level_up"):
+		return
+	if not tut.is_active():
+		tut.start_tutorial()
+	EventBus.player_level_up.disconnect(_tut_on_first_level)
+
+
+func _tut_on_first_enemy(enemy: Node2D) -> void:
+	var tut = _get_tutorial()
+	if not tut or not tut.has_method("should_show"):
+		return
+	if not tut.should_show("first_enemy"):
+		return
+	if not tut.is_active():
+		tut.start_tutorial()
+	EventBus.enemy_spawned.disconnect(_tut_on_first_enemy)
+
+
+func _tut_on_first_gold(amount: int) -> void:
+	var tut = _get_tutorial()
+	if not tut or not tut.has_method("should_show"):
+		return
+	if not tut.should_show("first_gold"):
+		return
+	if not tut.is_active():
+		tut.start_tutorial()
+	EventBus.gold_collected.disconnect(_tut_on_first_gold)
+
+
+func _tut_on_first_boss(time_remaining: int) -> void:
+	var tut = _get_tutorial()
+	if not tut or not tut.has_method("should_show"):
+		return
+	if not tut.should_show("first_boss"):
+		return
+	if not tut.is_active():
+		tut.start_tutorial()
+	EventBus.boss_countdown_started.disconnect(_tut_on_first_boss)

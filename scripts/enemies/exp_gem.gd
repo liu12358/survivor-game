@@ -18,6 +18,9 @@ var _pool_ref: Node = null
 var _initial_dist: float = 0.0           # 磁吸起始距离
 var _arc_offset: float = 0.0             # 弧形摆动偏移
 var _mergeable: bool = true              # 可被合并
+var _picked_up: bool = false             # 拾取幂等守卫（磁吸+碰撞/动画+超时同帧触发）
+var _released: bool = false              # 释放幂等守卫（防止 tween 回调与超时双重释放）
+var _fx_tween: Tween = null              # 拾取动画引用（reset_for_pool 时 kill，避免残留回调误释放）
 
 @onready var sprite: Sprite2D = $Sprite2D
 
@@ -77,6 +80,11 @@ func _on_area_entered(area: Area2D) -> void:
 
 
 func _pickup(player: Node2D) -> void:
+	if _picked_up:
+		return
+	if not is_inside_tree():
+		return
+	_picked_up = true
 	match pickup_type:
 		"exp":
 			EventBus.exp_collected.emit(exp_amount)
@@ -130,16 +138,21 @@ func _pickup_fx() -> void:
 			t.tween_callback(p.queue_free)
 
 	# 缩放消失（释放由 tween 回调触发，避免双重释放）
-	var t2 = create_tween()
-	t2.set_parallel(true)
-	t2.tween_property(self, "scale", Vector2(1.8, 1.8), 0.1).set_ease(Tween.EASE_OUT)
-	t2.tween_property(self, "modulate:a", 0.0, 0.1)
-	t2.chain().tween_callback(_release_to_pool)
+	if _fx_tween and _fx_tween.is_valid():
+		_fx_tween.kill()
+	_fx_tween = create_tween()
+	_fx_tween.set_parallel(true)
+	_fx_tween.tween_property(self, "scale", Vector2(1.8, 1.8), 0.1).set_ease(Tween.EASE_OUT)
+	_fx_tween.tween_property(self, "modulate:a", 0.0, 0.1)
+	_fx_tween.chain().tween_callback(_release_to_pool)
 
 	EventBus.screen_shake_requested.emit(1.0, 0.05)
 
 
 func _release_to_pool() -> void:
+	if _released:
+		return
+	_released = true
 	remove_from_group("gem")
 	is_magnetized = false
 	target_player = null
@@ -156,6 +169,12 @@ func set_pool_ref(pool: Node) -> void:
 
 func reset_for_pool() -> void:
 	"""从池中重用时重置"""
+	# 杀死残留拾取 Tween，避免重新激活后回调误触发 _release_to_pool
+	if _fx_tween and _fx_tween.is_valid():
+		_fx_tween.kill()
+		_fx_tween = null
+	_picked_up = false
+	_released = false
 	_time_alive = 0.0
 	is_magnetized = false
 	fly_speed = 0.0

@@ -94,6 +94,7 @@ func _create_ui() -> void:
 	)
 
 	_build_difficulty(settings_box)
+	_build_map(settings_box)
 	_build_character(settings_box)
 	_build_skin(settings_box)
 	_build_seed(settings_box)
@@ -159,6 +160,34 @@ func _build_difficulty(box: VBoxContainer) -> void:
 		row.add_child(btn)
 
 
+func _build_map(box: VBoxContainer) -> void:
+	var map_label = Label.new()
+	map_label.text = "地图: " + _get_map_name()
+	map_label.add_theme_font_size_override("font_size", 14)
+	map_label.modulate = Color(0.6, 0.7, 0.8)
+	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(map_label)
+	var row = HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	box.add_child(row)
+	for map_id in GameState.MAPS:
+		var cfg = GameState.MAPS[map_id]
+		var btn = Button.new()
+		btn.text = cfg["name"]
+		btn.custom_minimum_size = Vector2(80, 28)
+		btn.add_theme_font_size_override("font_size", 12)
+		btn.pressed.connect(func(mid=map_id):
+			GameState.current_map = mid
+			map_label.text = "地图: " + _get_map_name()
+			if has_node("/root/AudioManager"):
+				get_node("/root/AudioManager").play_sfx_ui_click()
+		)
+		if GameState.current_map == map_id:
+			btn.modulate = Color(1.2, 1.2, 1.2)
+		row.add_child(btn)
+
+
 func _build_character(box: VBoxContainer) -> void:
 	var char_label = Label.new()
 	char_label.text = "角色: " + _get_char_name()
@@ -201,6 +230,9 @@ func _build_character(box: VBoxContainer) -> void:
 				GameState.current_character = cid
 				char_label.text = "角色: " + _get_char_name()
 				passive_desc.text = cpassive
+				# 角色选择按钮点击音效
+				if has_node("/root/AudioManager"):
+					get_node("/root/AudioManager").play_sfx_ui_click()
 			)
 		row.add_child(cbtn)
 
@@ -221,7 +253,20 @@ func _build_skin(box: VBoxContainer) -> void:
 		var sbtn = Button.new()
 		sbtn.custom_minimum_size = Vector2(74, 26)
 		sbtn.add_theme_font_size_override("font_size", 11)
-		sbtn.modulate = GameState.SKINS[sid]["color"]
+		# 用 StyleBoxFlat 设置按钮背景色为皮肤颜色（替代 modulate 整体染色，保证文字可读）
+		var skin_style = StyleBoxFlat.new()
+		skin_style.bg_color = GameState.SKINS[sid]["color"]
+		skin_style.corner_radius_top_left = 6
+		skin_style.corner_radius_top_right = 6
+		skin_style.corner_radius_bottom_left = 6
+		skin_style.corner_radius_bottom_right = 6
+		sbtn.add_theme_stylebox_override("normal", skin_style)
+		var skin_hover = skin_style.duplicate()
+		skin_hover.bg_color = GameState.SKINS[sid]["color"].lightened(0.2)
+		sbtn.add_theme_stylebox_override("hover", skin_hover)
+		# 文字保持白色
+		sbtn.add_theme_color_override("font_color", Color.WHITE)
+		sbtn.add_theme_color_override("font_hover_color", Color.WHITE)
 		row.add_child(sbtn)
 		btns[sid] = sbtn
 		sbtn.pressed.connect(func(id=sid):
@@ -291,6 +336,12 @@ func _make_button(text: String, color: Color) -> Button:
 	pressed.bg_color = Color(color.r * 0.4, color.g * 0.4, color.b * 0.4, 0.9)
 	btn.add_theme_stylebox_override("pressed", pressed)
 
+	# 按钮点击音效
+	btn.pressed.connect(func():
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_sfx_ui_click()
+	)
+
 	return btn
 
 
@@ -319,6 +370,11 @@ func _get_diff_name() -> String:
 		"nightmare": return "🔥 噩梦"
 		"starfall": return "⭐ 星落"
 		_: return "⚔️ 普通"
+
+
+func _get_map_name() -> String:
+	var cfg = GameState.MAPS.get(GameState.current_map, {})
+	return cfg.get("name", GameState.current_map)
 
 
 func _get_char_name() -> String:

@@ -81,7 +81,7 @@ func _damage_tick(delta: float) -> void:
 					enemy.take_damage(dmg, is_crit)
 					_apply_lifesteal(dmg)
 				EventBus.damage_number_requested.emit(enemy.global_position + Vector2(0, -16), dmg, is_crit, 0)
-				_hit_cd[id] = HIT_INTERVAL
+				_hit_cd[id] = HIT_INTERVAL / attack_speed
 
 
 func _apply_level_stats() -> void:

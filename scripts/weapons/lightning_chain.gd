@@ -67,7 +67,7 @@ func _find_nearest_enemy(exclude: Array[Node2D], from: Vector2) -> Node2D:
 	for enemy in enemies:
 		if not is_instance_valid(enemy) or enemy in exclude:
 			continue
-		if enemy.has_method("is_dead") and enemy.is_dead:
+		if "state" in enemy and (enemy.state == 4 or enemy.state == 5):
 			continue
 		var dist = from.distance_to(enemy.global_position)
 		if dist < best_dist:

@@ -13,6 +13,7 @@ var enable_split: bool = false
 var crit_chance: float = 0.0
 var crit_mult: float = 1.5
 var lifesteal: float = 0.0
+var _consumed: bool = false
 
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var collision_shape: CollisionShape2D = $CollisionShape2D
@@ -29,14 +30,19 @@ func _ready() -> void:
 func activate() -> void:
 	_time_alive = 0.0
 	remaining_pen = penetration
+	_consumed = false
 	set_process(true)
 	visible = true
 	if sprite:
 		sprite.visible = true
+		sprite.modulate = Color.WHITE
+		sprite.scale = Vector2.ONE
 	if collision_shape:
 		collision_shape.set_deferred("disabled", false)
 	if _glow:
 		_glow.visible = true
+		_glow.modulate = Color.WHITE
+		_glow.scale = Vector2.ONE
 
 
 func _process(delta: float) -> void:
@@ -57,8 +63,11 @@ func _process(delta: float) -> void:
 
 
 func _on_body_entered(body: Node2D) -> void:
+	if _consumed:
+		return
 	if not body.is_in_group("enemy"):
 		return
+	# 先造成伤害，再检查穿透是否耗尽
 	if body.has_method("take_damage"):
 		var is_crit = randf() < crit_chance
 		var final_dmg = damage
@@ -75,9 +84,9 @@ func _on_body_entered(body: Node2D) -> void:
 		if body.has_method("apply_knockback"):
 			body.apply_knockback(direction * 100)
 
-	if remaining_pen > 0:
-		remaining_pen -= 1
-	else:
+	# 穿透递减，耗尽则销毁
+	remaining_pen -= 1
+	if remaining_pen < 0:
 		_deactivate()
 
 
@@ -89,6 +98,7 @@ func _get_player() -> Node2D:
 
 
 func _deactivate() -> void:
+	_consumed = true
 	set_process(false)
 	visible = false
 	if collision_shape:

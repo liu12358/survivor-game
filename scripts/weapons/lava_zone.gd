@@ -25,6 +25,7 @@ func _initialize() -> void:
 
 
 func _ready() -> void:
+	super._ready()
 	add_to_group("weapon")
 	_upgrade_stats()
 
@@ -35,7 +36,7 @@ func _process(delta: float) -> void:
 		return
 
 	_spawn_timer += delta
-	if _spawn_timer >= _spawn_interval:
+	if _spawn_timer >= _spawn_interval / attack_speed:
 		_spawn_timer = 0.0
 		_spawn_lava_zone()
 
@@ -50,7 +51,7 @@ func _process(delta: float) -> void:
 func _spawn_lava_zone() -> void:
 	var zone = Area2D.new()
 	zone.collision_layer = 0
-	zone.collision_mask = 4
+	zone.collision_mask = 2  # enemy 层（敌人 collision_layer=2），原值 4 是 projectile 层导致永远命中不到敌人
 
 	var shape = CollisionShape2D.new()
 	var circle = CircleShape2D.new()

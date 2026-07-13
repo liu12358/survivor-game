@@ -83,6 +83,7 @@ var affix_armor: float = 0.0             # 坚毅：每层 +2
 var affix_exp_bonus: float = 0.0         # 贪婪：每层 +0.10
 var affix_damage_bonus: float = 0.0
 var affix_lifesteal: float = 0.0         # 武器吸血词条累加
+var affix_max_hp_mult: float = 1.0       # 逆血契等词条的 max_hp 乘区（Task 7）
 var char_crit_bonus: float = 0.0         # 角色专属暴击加成（弓手·鹰眼）
 
 const BASE_MAX_HP := 100.0
@@ -118,9 +119,52 @@ const SKINS := {
 	"crimson": {"name": "绯红", "color": Color(1.35, 0.6, 0.6), "price": 200},
 }
 
+# 地图配置（多地图支持）
+# 每张地图: name=显示名, radius=边界半径, obstacle_count=障碍物数量,
+#   obstacle_size=障碍物尺寸范围[min,max], bg_color=底色, grid_color=网格色
+const MAPS := {
+	"grassland": {
+		"name": "🌿 草原",
+		"radius": 800.0,
+		"obstacle_count": 0,
+		"obstacle_min_size": 40.0,
+		"obstacle_max_size": 80.0,
+		"bg_color": Color(0.10, 0.13, 0.08),
+		"grid_color": Color(0.18, 0.22, 0.14, 0.5),
+		"obstacle_color": Color(0.20, 0.24, 0.16),
+	},
+	"dungeon": {
+		"name": "🏰 地牢",
+		"radius": 800.0,
+		"obstacle_count": 25,
+		"obstacle_min_size": 50.0,
+		"obstacle_max_size": 120.0,
+		"bg_color": Color(0.10, 0.09, 0.12),
+		"grid_color": Color(0.20, 0.18, 0.24, 0.5),
+		"obstacle_color": Color(0.22, 0.20, 0.26),
+	},
+	"crystal_cave": {
+		"name": "💎 水晶洞",
+		"radius": 750.0,
+		"obstacle_count": 35,
+		"obstacle_min_size": 30.0,
+		"obstacle_max_size": 60.0,
+		"bg_color": Color(0.06, 0.08, 0.14),
+		"grid_color": Color(0.12, 0.16, 0.28, 0.5),
+		"obstacle_color": Color(0.15, 0.20, 0.35),
+	},
+}
+
+func get_current_map_config() -> Dictionary:
+	return MAPS.get(current_map, MAPS["grassland"])
+
 # 图鉴记录
 var bestiary_kills: Dictionary = {}       # {enemy_type: kill_count}
 var weapons_used: Dictionary = {}         # {weapon_id: games_used}
+
+# 新手引导完成状态
+var tutorial_completed: Dictionary = {}   # {tutorial_id: bool}
+var tutorial_active: bool = false         # 引导进行中（供 Player take_damage 判断无敌）
 
 # ─── 难度配置 ───
 const DIFFICULTY_CONFIG = {
@@ -199,6 +243,11 @@ func reset_game_data() -> void:
 	kill_streak_bonus = 0.0
 	total_damage_dealt = 0.0
 	total_damage_taken = 0.0
+	# 金手指 / 全局开关原位重置，避免上一局设置残留（Task 6）
+	max_revive_count = 1
+	cheat_godmode = false
+	game_speed_mult = 1.0
+	is_custom_seed = false
 	_reset_player_stats()
 	current_hp = max_hp
 
@@ -224,8 +273,9 @@ func update_kill_streak(delta: float) -> void:
 
 func _reset_player_stats() -> void:
 	# 兼容旧调用：统一走 recalc_stats()
-	crit_multiplier = 1.5
-	hp_regen = 0.0
+	# 词条累加器必须先清零，避免上一局残留渗入 recalc_stats（Task 7）
+	affix_lifesteal = 0.0
+	affix_max_hp_mult = 1.0
 	shield_passive_lv = 0
 	recalc_stats()
 
@@ -246,9 +296,15 @@ func recalc_stats() -> void:
 	lifesteal = int(active_passives.get("lifesteal", 0)) * 0.03 + affix_lifesteal
 	drop_rate = int(active_passives.get("luck", 0)) * 0.10
 
+	# 基础值统一在此处声明，便于后续词条/被动扩展（Task 45）
+	crit_multiplier = 1.5
+	hp_regen = 0.0
+
 	# 最大 HP：上限提升时当前 HP 同步增加（修复 B-3「幻血」）
 	var hp_lv := int(active_passives.get("max_hp", 0))
 	var new_max := BASE_MAX_HP + meta_hp_bonus * 5.0 + hp_lv * 25.0
+	# 词条 max_hp 乘区（逆血契：削减最大 HP）— 在 base 计算后、current_hp 截断前应用（Task 7）
+	new_max = int(new_max * affix_max_hp_mult)
 	var gain := new_max - max_hp
 	max_hp = new_max
 	if gain > 0.0:
@@ -258,8 +314,9 @@ func recalc_stats() -> void:
 
 
 # 含减速 / 加速 buff 的实际移速（供 Player 每帧读取，修复 B-4）
+# 短名为长名别名，避免两份相同公式漂移（Task 48）
 func effective_move_speed() -> float:
-	return move_speed * (1.0 - slow_amount) * speed_buff_mult
+	return get_effective_move_speed()
 
 func _calculate_exp_for_level(level: int) -> float:
 	#
@@ -311,7 +368,8 @@ func effective_range_mult() -> float:
 	return 1.0
 
 func get_damage_multiplier() -> float:
-	return (1.0 + damage_bonus) * damage_buff_mult
+	# 短名为长名别名，避免两份相同公式漂移（Task 48）
+	return get_effective_damage_mult()
 
 
 # ─── 有效值计算（Meta 数值分层解离） ───
@@ -319,9 +377,10 @@ func get_damage_multiplier() -> float:
 # 所有局内逻辑和HUD刷新必须调用这些方法，禁止直接修改基础常量
 
 func get_effective_max_hp() -> float:
-	"""计算玩家最终最大 HP"""
+	"""计算玩家最终最大 HP（与 recalc_stats 公式保持一致）"""
 	var hp_lv := int(active_passives.get("max_hp", 0))
-	return BASE_MAX_HP + meta_hp_bonus * 5.0 + hp_lv * 25.0
+	var base := BASE_MAX_HP + meta_hp_bonus * 5.0 + hp_lv * 25.0
+	return int(base * affix_max_hp_mult)
 
 
 func get_effective_move_speed() -> float:
@@ -338,7 +397,8 @@ func get_effective_damage_mult() -> float:
 
 func get_effective_exp_rate() -> float:
 	"""计算经验获取倍率"""
-	return 1.0 + exp_bonus + exp_buff_mult - 1.0  # buff_mult 已是 1.0/2.0
+	# 乘区公式：与 HUD 显示保持一致（Task 24）
+	return (1.0 + exp_bonus) * exp_buff_mult * (1.0 + kill_streak_bonus)
 
 
 func get_effective_drop_rate() -> float:

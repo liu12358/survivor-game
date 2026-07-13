@@ -10,7 +10,7 @@ extends Node2D
 
 # 数值属性
 var level: int = 1
-var max_level: int = 7
+var max_level: int = 8
 var base_damage: float = 10.0
 var attack_speed: float = 1.0       # 次/秒
 var attack_timer: float = 0.0
@@ -73,7 +73,7 @@ func _initialize() -> void:
 
 func _find_target() -> void:
 	var enemies = GameState.get_cached_group("enemy")
-	var search_range = maxf(target_range, 800.0) * GameState.effective_range_mult()
+	var search_range = maxf(target_range, 200.0) * GameState.effective_range_mult()
 	target = null
 	var nearest_dist = search_range
 	# 用父节点位置（玩家位置）而非自身位置，避免子节点坐标延迟
@@ -124,8 +124,8 @@ func get_damage_with_bonus() -> float:
 	for affix in affixes:
 		if affix.get("type") == "damage":
 			dmg *= 1.0 + affix.get("value", 0.1)
-	# 随机浮动 ±10%
-	dmg *= randf_range(0.9, 1.1)
+	# 随机浮动 ±10%（用 GameState.rng 保证种子复现一致）
+	dmg *= GameState.rng.randf_range(0.9, 1.1)
 	return dmg
 
 
@@ -143,11 +143,8 @@ func add_affix(affix: Dictionary) -> void:
 			# 置换词条·全局
 			"inverse_blood_pact":
 				var p = affix.get("pos", {})
-				var n = affix.get("neg", {})
 				GameState.affix_lifesteal += p.get("value", 0.05)
-				GameState.max_hp *= (1.0 + n.get("value", -0.20))
-				if GameState.current_hp > GameState.max_hp:
-					GameState.current_hp = GameState.max_hp
+				GameState.affix_max_hp_mult *= 0.8
 		GameState.recalc_stats()
 	else:
 		# 武器级词条（仅作用于本武器实例）
@@ -177,6 +174,11 @@ func remove_affixes() -> void:
 				"move_speed": GameState.affix_move_speed -= v
 				"exp":        GameState.affix_exp_bonus -= v
 				"armor":      GameState.affix_armor -= v
+				"lifesteal":  GameState.affix_lifesteal -= v
+				"inverse_blood_pact":
+					var p = affix.get("pos", {})
+					GameState.affix_lifesteal -= p.get("value", 0.05)
+					GameState.affix_max_hp_mult /= 0.8
 	GameState.recalc_stats()
 	affixes.clear()
 	crit_chance = 0.0

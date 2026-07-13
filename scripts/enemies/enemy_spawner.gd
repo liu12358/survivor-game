@@ -257,25 +257,41 @@ func _spawn_elite() -> void:
 	elif _game_time < 600:
 		affix = "tough"
 	else:
-		affix = ["fast", "tough", "reflect", "explode", "poison"].pick_random()
+		affix = ["fast", "tough", "reflect", "explode", "poison"][GameState.rng.randi() % 5]
 
-	var enemy: Node2D = _create_enemy("slime_big")
+	var chosen_type: String = "slime_big"
+	var enemy: Node2D = _create_enemy(chosen_type)
 	if _game_time > 600:
 		# 10分钟后精英也可能是幽灵
 		var pool = ["slime_big", "ghost"]
-		enemy = _create_enemy(pool[GameState.rng.randi() % pool.size()])
+		chosen_type = pool[GameState.rng.randi() % pool.size()]
+		enemy = _create_enemy(chosen_type)
 	elif not enemy:
-		enemy = _create_enemy("slime_big")
+		chosen_type = "slime_big"
+		enemy = _create_enemy(chosen_type)
 	if not enemy:
-		enemy = _create_enemy("slime_small")
+		chosen_type = "slime_small"
+		enemy = _create_enemy(chosen_type)
 	if not enemy:
 		return
 
 	enemy.make_elite(affix)
 	enemy.global_position = _get_spawn_position()
 
-	add_child(enemy)
-	_active_enemies.append(enemy)
+	# 应用难度/时间倍率（与 _spawn_enemy 一致，否则精英缺少后期数值缩放）
+	var diff = GameState.get_difficulty_config()
+	var ts = _time_scaling()
+	enemy.max_health *= diff["hp_mult"] * ts["hp"]
+	enemy.move_speed *= diff["speed_mult"] * ts["speed"]
+	enemy.current_health = enemy.max_health
+
+	# 池化怪物已在池节点下，不需要再 add_child（否则会从池重parent到生成器）
+	var from_pool := (chosen_type in POOLED_ENEMIES and _enemy_pools.has(chosen_type))
+	if not from_pool:
+		add_child(enemy)
+	# 避免双重注册：_create_enemy 已为池化怪物 append 过 _active_enemies
+	if not _active_enemies.has(enemy):
+		_active_enemies.append(enemy)
 	EventBus.enemy_spawned.emit(enemy)
 
 
@@ -285,7 +301,7 @@ func _apply_late_game_affix(enemy: Node2D) -> void:
 		"explode": 0.10, "poison": 0.10, "summon": 0.05
 	}
 	for affix in affix_pool:
-		if randf() < affix_pool[affix]:
+		if GameState.rng.randf() < affix_pool[affix]:
 			enemy.add_extra_affix(affix)
 
 
@@ -302,6 +318,15 @@ func get_enemy_count() -> int:
 	return _active_enemies.size()
 
 
+func register_enemy(enemy: Node2D) -> void:
+	"""注册外部创建的敌人（分裂/召唤）到活跃列表，便于统一清理与计数"""
+	if not is_instance_valid(enemy):
+		return
+	if _active_enemies.has(enemy):
+		return
+	_active_enemies.append(enemy)
+
+
 func spawn_exp_gem(position: Vector2, amount: int, gold: int = 0) -> void:
 	# 宝石上限检查
 	var gem_count = get_tree().get_nodes_in_group("gem").size()
@@ -309,22 +334,22 @@ func spawn_exp_gem(position: Vector2, amount: int, gold: int = 0) -> void:
 		return
 
 	# 经验宝石
-	_spawn_gem_at(position, "exp", amount, gold, Vector2(randf_range(-10, 10), randf_range(-10, 10)))
+	_spawn_gem_at(position, "exp", amount, gold, Vector2(GameState.rng.randf_range(-10, 10), GameState.rng.randf_range(-10, 10)))
 
 	# 概率掉落特殊宝石
 	var drop_bonus = 1.0 + GameState.drop_rate
 	var roll = GameState.rng.randf()
 	if roll < 0.05 * drop_bonus:  # 5% 治疗（红心）
-		_spawn_gem_at(position, "heal", 0, 0, Vector2(randf_range(-12, 12), randf_range(-12, 12)))
+		_spawn_gem_at(position, "heal", 0, 0, Vector2(GameState.rng.randf_range(-12, 12), GameState.rng.randf_range(-12, 12)))
 	elif roll < 0.10 * drop_bonus:  # 5% 护盾
-		_spawn_gem_at(position, "shield", 0, 0, Vector2(randf_range(-12, 12), randf_range(-12, 12)))
+		_spawn_gem_at(position, "shield", 0, 0, Vector2(GameState.rng.randf_range(-12, 12), GameState.rng.randf_range(-12, 12)))
 	elif roll < (0.15 + 0.10 * GameState.drop_rate) * drop_bonus:  # 15%→25% 金币
-		_spawn_gem_at(position, "gold", 0, max(1, gold + randi() % 4), Vector2(randf_range(-15, 15), randf_range(-15, 15)))
+		_spawn_gem_at(position, "gold", 0, max(1, gold + GameState.rng.randi() % 4), Vector2(GameState.rng.randf_range(-15, 15), GameState.rng.randf_range(-15, 15)))
 
 	# 增益 Buff 掉落
 	if GameState.rng.randf() < 0.025 * drop_bonus:
 		var buff_types = ["buff_damage", "buff_speed", "buff_exp", "invincible", "magnet", "clear_bomb"]
-		_spawn_gem_at(position, buff_types[randi() % buff_types.size()], 0, 0, Vector2(randf_range(-15, 15), randf_range(-15, 15)))
+		_spawn_gem_at(position, buff_types[GameState.rng.randi() % buff_types.size()], 0, 0, Vector2(GameState.rng.randf_range(-15, 15), GameState.rng.randf_range(-15, 15)))
 
 
 func _spawn_gem_at(pos: Vector2, ptype: String, exp: int, gld: int, offset: Vector2) -> void:
